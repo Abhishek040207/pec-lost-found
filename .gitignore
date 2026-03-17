@@ -4,3 +4,4 @@ __pycache__/
 pec_lostfound.db
 static/uploads/*
 !static/uploads/.gitkeep
+.env
