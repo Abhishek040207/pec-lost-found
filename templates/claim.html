@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Claim Item — PEC Lost & Found{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Claim This Item</h1>
+  <p>Prove your ownership by describing details only the real owner would know</p>
+</div>
+
+<div class="form-card claim-page-card">
+  <!-- Found item preview -->
+  <div class="found-item-preview">
+    <h4>📦 Found Item Details</h4>
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <div><strong>Description:</strong> {{ found_item.brief_description }}</div>
+      <div><strong>Category:</strong> {{ found_item.category }}</div>
+      <div><strong>Location Found:</strong> {{ found_item.location }}</div>
+      <div><strong>Date Found:</strong> {{ found_item.date_found }}</div>
+      <div><strong>Posted By:</strong> {{ found_item.full_name }}</div>
+    </div>
+  </div>
+
+  {% if existing_claim %}
+  <div class="warning-box">
+    <strong>⏳ Claim Already Submitted</strong><br>
+    You have already submitted a claim for this item. The finder will review your description and contact you if approved.
+  </div>
+  <a href="{{ url_for('browse') }}" class="btn btn-outline">← Back to Browse</a>
+
+  {% else %}
+  <div class="warning-box">
+    <strong>🔍 How the Verification Works:</strong><br>
+    Describe specific hidden details about the item — things only the true owner would know, such as a unique keychain, a crack or scratch, a sticker, a saved name, or anything specific not visible in the post. The finder will then decide if your description matches.
+  </div>
+
+  <form method="POST" action="{{ url_for('claim_item', found_item_id=found_item.id) }}">
+    <div class="form-group">
+      <label for="hidden_details">Describe Your Item's Hidden Details *</label>
+      <textarea id="hidden_details" name="hidden_details" rows="5"
+                placeholder="Example: 'It's a black wallet with a small blue thread sticking out from the corner. Inside there's a Manipal Hospital card and a photo of my dog. The zip has a small brass keychain with the letter R on it.'"
+                required minlength="20"></textarea>
+      <div class="form-hint">Minimum 20 characters. Be as specific as possible.</div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:4px;">
+      <button type="submit" class="btn btn-primary btn-lg">Submit Claim</button>
+      <a href="{{ url_for('browse') }}" class="btn btn-outline btn-lg">Cancel</a>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

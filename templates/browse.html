@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Browse Items — PEC Lost & Found{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Browse Items</h1>
+  <p>Search for lost items or find items that have been turned in</p>
+</div>
+
+<!-- Filter Bar -->
+<form method="GET" action="{{ url_for('browse') }}">
+  <div class="browse-bar">
+    <div class="search-input-wrap">
+      <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input type="text" name="search" value="{{ search }}" placeholder="Search by item name or location…">
+    </div>
+    <select name="category" style="width:auto;min-width:160px;">
+      <option value="">All Categories</option>
+      {% for cat in categories %}
+      <option value="{{ cat }}" {% if selected_category == cat %}selected{% endif %}>{{ cat }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-primary">Filter</button>
+    {% if search or selected_category %}
+    <a href="{{ url_for('browse') }}" class="btn btn-outline">Clear</a>
+    {% endif %}
+  </div>
+</form>
+
+<!-- Tabs -->
+<div class="tabs" style="margin-bottom:20px;width:fit-content;">
+  <button class="tab-btn active" data-tab="lost">
+    🔴 Lost Items ({{ lost_items|length }})
+  </button>
+  <button class="tab-btn" data-tab="found">
+    🟢 Found Items ({{ found_items|length }})
+  </button>
+</div>
+
+<!-- Lost Items -->
+<div id="lostSection">
+  {% if lost_items %}
+  <div class="cards-grid">
+    {% for item in lost_items %}
+    <div class="card">
+      <div class="card-img">
+        {% if item.image_path %}
+          <img src="{{ url_for('static', filename=item.image_path) }}" alt="{{ item.item_name }}">
+        {% else %}
+          <div class="card-img-placeholder">📦</div>
+        {% endif %}
+        <span class="card-badge badge-lost">Lost</span>
+      </div>
+      <div class="card-body">
+        <div class="card-title">{{ item.item_name }}</div>
+        <div class="card-meta">
+          <span class="meta-tag">📁 {{ item.category }}</span>
+          <span class="meta-tag">📍 {{ item.location }}</span>
+          <span class="meta-tag">🎨 {{ item.color }}</span>
+        </div>
+        {% if item.description %}
+        <p style="font-size:.82rem;color:var(--text-2);margin-top:6px;">{{ item.description[:100] }}{% if item.description|length > 100 %}…{% endif %}</p>
+        {% endif %}
+        <div style="font-size:.78rem;color:var(--text-3);margin-top:6px;">Lost: {{ item.date_lost }}</div>
+      </div>
+      <div class="card-footer">
+        <div class="poster-info">
+          <strong>{{ item.full_name.split()[0] }}</strong> · {{ item.department }}
+        </div>
+        <span style="font-size:.72rem;color:var(--text-3);">{{ item.created_at[:10] }}</span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">🔍</div>
+    <p>No lost items found{% if search %} for "{{ search }}"{% endif %}.</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Found Items -->
+<div id="foundSection" style="display:none;">
+  {% if found_items %}
+  <div class="cards-grid">
+    {% for item in found_items %}
+    <div class="card">
+      <div class="card-img">
+        <div class="card-img-placeholder" style="font-size:3rem;">🟢</div>
+        <span class="card-badge badge-found">Found</span>
+      </div>
+      <div class="card-body">
+        <div class="card-title">{{ item.brief_description }}</div>
+        <div class="card-meta">
+          <span class="meta-tag">📁 {{ item.category }}</span>
+          <span class="meta-tag">📍 {{ item.location }}</span>
+        </div>
+        <div style="font-size:.78rem;color:var(--text-3);margin-top:6px;">Found: {{ item.date_found }}</div>
+        <div style="font-size:.78rem;color:var(--warn);margin-top:6px;font-weight:500;">
+          ℹ️ Color &amp; details hidden — prove ownership to claim
+        </div>
+      </div>
+      <div class="card-footer">
+        <div class="poster-info">
+          <strong>{{ item.full_name.split()[0] }}</strong> · {{ item.department }}
+        </div>
+        {% if item.user_id != session.user_id %}
+        <a href="{{ url_for('claim_item', found_item_id=item.id) }}" class="btn btn-primary btn-sm">Claim →</a>
+        {% else %}
+        <span class="btn btn-outline btn-sm" style="cursor:default;opacity:.5;">Your Post</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">📬</div>
+    <p>No found items listed{% if search %} for "{{ search }}"{% endif %}.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

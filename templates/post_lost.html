@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Post Lost Item — PEC Lost & Found{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Post a Lost Item</h1>
+  <p>Provide as many details as possible to help finders identify your item</p>
+</div>
+
+<div class="form-card">
+  <form method="POST" action="{{ url_for('post_lost') }}" enctype="multipart/form-data">
+
+    <div class="form-row">
+      <div class="form-group">
+        <label for="item_name">Item Name *</label>
+        <input type="text" id="item_name" name="item_name" placeholder="e.g. Blue Backpack, iPhone 13" required>
+      </div>
+      <div class="form-group">
+        <label for="category">Category *</label>
+        <select id="category" name="category" required>
+          <option value="">Select category</option>
+          {% for cat in categories %}
+          <option value="{{ cat }}">{{ cat }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label for="color">Color / Appearance *</label>
+        <input type="text" id="color" name="color" placeholder="e.g. Black with red stripes" required>
+        <div class="form-hint">Include distinguishing marks, stickers, etc.</div>
+      </div>
+      <div class="form-group">
+        <label for="date_lost">Date Lost *</label>
+        <input type="date" id="date_lost" name="date_lost" required max="{{ now }}">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="location">Last Seen Location *</label>
+      <select id="location" name="location" required>
+        <option value="">Select location</option>
+        {% for loc in locations %}
+        <option value="{{ loc }}">{{ loc }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="description">Additional Description</label>
+      <textarea id="description" name="description" placeholder="Any extra details — model number, sentimental value, unique identifiers…"></textarea>
+    </div>
+
+    <div class="form-group">
+      <label>Upload Image (optional)</label>
+      <div class="file-drop">
+        <input type="file" id="imageInput" name="image" accept="image/*">
+        <div class="file-drop-icon">📷</div>
+        <p>Drag &amp; drop or click to upload</p>
+        <small>PNG, JPG, WEBP — max 10MB</small>
+      </div>
+      <div id="imagePreview"><img src="" alt="Preview"></div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:8px;">
+      <button type="submit" class="btn btn-primary btn-lg">Post Lost Item</button>
+      <a href="{{ url_for('dashboard') }}" class="btn btn-outline btn-lg">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // Set max date to today
+  document.getElementById('date_lost').max = new Date().toISOString().split('T')[0];
+</script>
+{% endblock %}
