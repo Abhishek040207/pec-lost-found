@@ -3,7 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}PEC Lost & Found{% endblock %}</title>
+
+    <!-- Google Search Console Verification -->
+    <meta name="google-site-verification" content="RKkzoxOB6dPX9LfBzV-Lb_LhYTKBHRRCSQE1cagv3qA" />
+
+    <!-- SEO Meta Tags -->
+    <title>{% block title %}PEC Lost & Found — Punjab Engineering College{% endblock %}</title>
+    <meta name="description" content="Lost something at Punjab Engineering College, Chandigarh? Report lost items, find found items, and reclaim your belongings on PEC's official Lost & Found portal.">
+    <meta name="keywords" content="PEC lost and found, Punjab Engineering College lost, PEC Chandigarh lost item, PEC found item, lost at PEC, found at PEC, pec-lost-found">
+    <meta name="author" content="Punjab Engineering College">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://pec-lost-found.onrender.com">
+
+    <!-- Open Graph (WhatsApp / Facebook preview) -->
+    <meta property="og:title" content="PEC Lost & Found — Punjab Engineering College">
+    <meta property="og:description" content="Lost something at PEC Chandigarh? Report it here or find items turned in by fellow students.">
+    <meta property="og:url" content="https://pec-lost-found.onrender.com">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="PEC Lost & Found">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="PEC Lost & Found">
+    <meta name="twitter:description" content="Lost something at Punjab Engineering College? Find it here.">
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
@@ -27,14 +50,13 @@
 {% block full_page %}
 {% if session.user_id %}
 <div class="app-shell">
-  <!-- Sidebar -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-brand">
       <div class="brand-logo">
         <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-          <rect width="28" height="28" rx="8" fill="var(--accent)"/>
+          <rect width="28" height="28" rx="8" fill="rgba(255,255,255,0.2)"/>
           <path d="M7 10h14M7 14h10M7 18h12" stroke="white" stroke-width="2" stroke-linecap="round"/>
-          <circle cx="21" cy="18" r="4" fill="var(--accent)" stroke="white" stroke-width="1.5"/>
+          <circle cx="21" cy="18" r="4" fill="rgba(255,255,255,0.2)" stroke="white" stroke-width="1.5"/>
           <path d="M19.5 18h3M21 16.5v3" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
         </svg>
       </div>
@@ -82,7 +104,6 @@
     </div>
   </aside>
 
-  <!-- Mobile header -->
   <header class="mobile-header">
     <button class="burger" id="burgerBtn" onclick="toggleSidebar()">
       <span></span><span></span><span></span>
@@ -93,7 +114,6 @@
 
   <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
 
-  <!-- Main content -->
   <main class="main-content">
     {% block content %}{% endblock %}
   </main>
