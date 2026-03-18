@@ -413,5 +413,9 @@ def profile():
     conn.close()
     return render_template('profile.html', user=user, stats=stats)
 
+@app.route('/google895b8fa8bed373f0.html')
+def google_verify():
+    return 'google-site-verification: google895b8fa8bed373f0.html'
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
