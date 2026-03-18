@@ -7,27 +7,13 @@
   <p>Manage your lost &amp; found posts and claims</p>
 </div>
 
-<!-- Stats -->
 <div class="stats-row">
-  <div class="stat-card red">
-    <div class="stat-label">My Lost Posts</div>
-    <div class="stat-value">{{ my_lost|length }}</div>
-  </div>
-  <div class="stat-card green">
-    <div class="stat-label">My Found Posts</div>
-    <div class="stat-value">{{ my_found|length }}</div>
-  </div>
-  <div class="stat-card warn">
-    <div class="stat-label">Pending Claims</div>
-    <div class="stat-value">{{ my_claims|length }}</div>
-  </div>
-  <div class="stat-card blue">
-    <div class="stat-label">Items Returned</div>
-    <div class="stat-value">{{ my_found|selectattr('status','eq','resolved')|list|length }}</div>
-  </div>
+  <div class="stat-card red"><div class="stat-label">My Lost Posts</div><div class="stat-value">{{ my_lost|length }}</div></div>
+  <div class="stat-card green"><div class="stat-label">My Found Posts</div><div class="stat-value">{{ my_found|length }}</div></div>
+  <div class="stat-card warn"><div class="stat-label">Pending Claims</div><div class="stat-value">{{ my_claims|length }}</div></div>
+  <div class="stat-card blue"><div class="stat-label">Items Returned</div><div class="stat-value">{{ my_found|selectattr('status','eq','resolved')|list|length }}</div></div>
 </div>
 
-<!-- Pending Claims -->
 {% if my_claims %}
 <div class="section">
   <div class="section-header">
@@ -36,38 +22,23 @@
   {% for claim in my_claims %}
   <div class="claim-card">
     <div class="claim-header">
-      <div>
-        <strong>{{ claim.full_name }}</strong>
-        <span style="color:var(--text-2);font-size:.8rem;margin-left:8px;">{{ claim.department }}</span>
-      </div>
+      <div><strong>{{ claim.full_name }}</strong><span style="color:var(--text-2);font-size:.8rem;margin-left:8px;">{{ claim.department }}</span></div>
       <span style="font-size:.75rem;color:var(--text-3);">{{ claim.created_at[:10] }}</span>
     </div>
-    <div class="claim-body">
-      Claiming: <em>"{{ claim.brief_description }}"</em>
-      &nbsp;·&nbsp; Contact: <strong>{{ claim.contact }}</strong>
-    </div>
+    <div class="claim-body">Claiming: <em>"{{ claim.brief_description }}"</em> &nbsp;·&nbsp; Contact: <strong>{{ claim.contact }}</strong></div>
     <div class="claim-detail-box">
       <strong>🔍 Provided Hidden Details</strong>
       {{ claim.hidden_details }}
     </div>
     <div class="claim-actions">
-      <a href="{{ url_for('resolve_claim', claim_id=claim.id, action='approve') }}"
-         class="btn btn-success btn-sm"
-         data-confirm="Approve this claim? The item will be marked as returned.">
-        ✓ Approve &amp; Close
-      </a>
-      <a href="{{ url_for('resolve_claim', claim_id=claim.id, action='reject') }}"
-         class="btn btn-danger btn-sm"
-         data-confirm="Reject this claim?">
-        ✕ Reject
-      </a>
+      <a href="{{ url_for('resolve_claim', claim_id=claim.id, action='approve') }}" class="btn btn-success btn-sm" data-confirm="Approve this claim? The item will be marked as returned.">✓ Approve & Close</a>
+      <a href="{{ url_for('resolve_claim', claim_id=claim.id, action='reject') }}" class="btn btn-danger btn-sm" data-confirm="Reject this claim?">✕ Reject</a>
     </div>
   </div>
   {% endfor %}
 </div>
 {% endif %}
 
-<!-- My Lost Posts -->
 <div class="section">
   <div class="section-header">
     <div class="section-title">My Lost Item Posts</div>
@@ -79,7 +50,7 @@
     <div class="card">
       <div class="card-img">
         {% if item.image_path %}
-          <img src="{{ url_for('static', filename=item.image_path) }}" alt="{{ item.item_name }}">
+          <img src="{{ item.image_path }}" alt="{{ item.item_name }}">
         {% else %}
           <div class="card-img-placeholder">📦</div>
         {% endif %}
@@ -97,26 +68,20 @@
       </div>
       <div class="card-footer">
         <span class="poster-info">{{ item.created_at[:10] }}</span>
-        <a href="{{ url_for('delete_lost', item_id=item.id) }}"
-           class="btn btn-danger btn-sm"
-           data-confirm="Delete this post permanently?">Delete</a>
+        <a href="{{ url_for('delete_lost', item_id=item.id) }}" class="btn btn-danger btn-sm" data-confirm="Delete this post permanently?">Delete</a>
       </div>
     </div>
     {% endfor %}
   </div>
   {% else %}
-  <div class="empty-state">
-    <div class="empty-icon">🔍</div>
-    <p>No lost item posts yet. <a href="{{ url_for('post_lost') }}" style="color:var(--accent)">Post a lost item</a></p>
-  </div>
+  <div class="empty-state"><div class="empty-icon">🔍</div><p>No lost item posts yet. <a href="{{ url_for('post_lost') }}" style="color:var(--accent)">Post a lost item</a></p></div>
   {% endif %}
 </div>
 
-<!-- My Found Posts -->
 <div class="section">
   <div class="section-header">
     <div class="section-title">My Found Item Posts</div>
-    <a href="{{ url_for('post_found') }}" class="btn btn-success btn-sm" style="background:var(--found);color:white;border:none;">+ Post Found Item</a>
+    <a href="{{ url_for('post_found') }}" class="btn btn-sm" style="background:var(--found);color:white;border:none;">+ Post Found Item</a>
   </div>
   {% if my_found %}
   <div class="cards-grid">
@@ -138,19 +103,14 @@
       <div class="card-footer">
         <span class="poster-info">{{ item.created_at[:10] }}</span>
         {% if item.status != 'resolved' %}
-        <a href="{{ url_for('delete_found', item_id=item.id) }}"
-           class="btn btn-danger btn-sm"
-           data-confirm="Delete this post and all its claims?">Delete</a>
+        <a href="{{ url_for('delete_found', item_id=item.id) }}" class="btn btn-danger btn-sm" data-confirm="Delete this post and all its claims?">Delete</a>
         {% endif %}
       </div>
     </div>
     {% endfor %}
   </div>
   {% else %}
-  <div class="empty-state">
-    <div class="empty-icon">📬</div>
-    <p>No found item posts yet. <a href="{{ url_for('post_found') }}" style="color:var(--accent)">Post a found item</a></p>
-  </div>
+  <div class="empty-state"><div class="empty-icon">📬</div><p>No found item posts yet. <a href="{{ url_for('post_found') }}" style="color:var(--accent)">Post a found item</a></p></div>
   {% endif %}
 </div>
 {% endblock %}

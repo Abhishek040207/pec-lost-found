@@ -20,51 +20,68 @@
   </div>
 </div>
 
-<!-- Stats -->
 <div class="stats-row" style="margin-bottom:28px;">
-  <div class="stat-card red">
-    <div class="stat-label">Lost Posted</div>
-    <div class="stat-value">{{ stats.lost_posted }}</div>
-  </div>
-  <div class="stat-card green">
-    <div class="stat-label">Found Posted</div>
-    <div class="stat-value">{{ stats.found_posted }}</div>
-  </div>
-  <div class="stat-card blue">
-    <div class="stat-label">Items Returned</div>
-    <div class="stat-value">{{ stats.resolved }}</div>
-  </div>
+  <div class="stat-card red"><div class="stat-label">Lost Posted</div><div class="stat-value">{{ stats.lost_posted }}</div></div>
+  <div class="stat-card green"><div class="stat-label">Found Posted</div><div class="stat-value">{{ stats.found_posted }}</div></div>
+  <div class="stat-card blue"><div class="stat-label">Items Returned</div><div class="stat-value">{{ stats.resolved }}</div></div>
 </div>
 
-<!-- Info -->
 <div class="section-title" style="margin-bottom:12px;">Contact Information</div>
 <div class="info-grid">
-  <div class="info-item">
-    <div class="info-label">Full Name</div>
-    <div class="info-value">{{ user.full_name }}</div>
-  </div>
-  <div class="info-item">
-    <div class="info-label">Student ID</div>
-    <div class="info-value">{{ user.sid }}</div>
-  </div>
-  <div class="info-item">
-    <div class="info-label">Department</div>
-    <div class="info-value">{{ user.department }}</div>
-  </div>
-  <div class="info-item">
-    <div class="info-label">Contact</div>
-    <div class="info-value">{{ user.contact }}</div>
-  </div>
-  <div class="info-item">
-    <div class="info-label">Residency</div>
-    <div class="info-value">{{ user.hosteler_status }}{% if user.hostel_name %} — {{ user.hostel_name }}{% endif %}</div>
-  </div>
-  <div class="info-item">
-    <div class="info-label">Joined</div>
-    <div class="info-value">{{ user.created_at[:10] }}</div>
-  </div>
+  <div class="info-item"><div class="info-label">Full Name</div><div class="info-value">{{ user.full_name }}</div></div>
+  <div class="info-item"><div class="info-label">Student ID</div><div class="info-value">{{ user.sid }}</div></div>
+  <div class="info-item"><div class="info-label">Department</div><div class="info-value">{{ user.department }}</div></div>
+  <div class="info-item"><div class="info-label">Contact</div><div class="info-value">{{ user.contact }}</div></div>
+  <div class="info-item"><div class="info-label">Residency</div><div class="info-value">{{ user.hosteler_status }}{% if user.hostel_name %} — {{ user.hostel_name }}{% endif %}</div></div>
+  <div class="info-item"><div class="info-label">Joined</div><div class="info-value">{{ user.created_at[:10] }}</div></div>
 </div>
 
 <hr class="divider">
-<a href="{{ url_for('logout') }}" class="btn btn-danger" data-confirm="Are you sure you want to log out?">Sign Out</a>
+
+<!-- Reset Password -->
+<div class="section-title" style="margin-bottom:16px;">🔐 Change Password</div>
+<div class="form-card" style="margin-bottom:24px;">
+  <form method="POST" action="{{ url_for('reset_password') }}">
+    <div class="form-group">
+      <label for="current_password">Current Password</label>
+      <input type="password" id="current_password" name="current_password" required>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="new_password">New Password</label>
+        <input type="password" id="new_password" name="new_password" required>
+      </div>
+      <div class="form-group">
+        <label for="confirm_password">Confirm New Password</label>
+        <input type="password" id="confirm_password" name="confirm_password" required>
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary">Update Password</button>
+  </form>
+</div>
+
+<!-- Danger Zone -->
+<div class="danger-zone">
+  <h3>⚠️ Danger Zone</h3>
+  <p>Permanently delete your account and all your posts. This action <strong>cannot be undone</strong>.</p>
+  <button class="btn btn-danger" onclick="document.getElementById('deleteModal').style.display='flex'">Delete My Account</button>
+</div>
+
+<!-- Delete Modal -->
+<div id="deleteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;align-items:center;justify-content:center;">
+  <div style="background:white;border-radius:16px;padding:28px;max-width:400px;width:90%;box-shadow:0 25px 60px rgba(0,0,0,.3);">
+    <h3 style="font-family:var(--font-display);color:var(--lost);margin-bottom:10px;">Delete Account</h3>
+    <p style="font-size:.875rem;color:var(--text-2);margin-bottom:16px;">Enter your password to confirm permanent deletion of your account and all data.</p>
+    <form method="POST" action="{{ url_for('delete_account') }}">
+      <div class="form-group">
+        <label for="del_password">Your Password</label>
+        <input type="password" id="del_password" name="password" required placeholder="Enter password to confirm">
+      </div>
+      <div style="display:flex;gap:10px;margin-top:8px;">
+        <button type="submit" class="btn btn-danger">Yes, Delete Account</button>
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('deleteModal').style.display='none'">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
 {% endblock %}

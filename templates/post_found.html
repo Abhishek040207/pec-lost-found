@@ -10,18 +10,15 @@
 <div class="form-card">
   <div class="warning-box" style="margin-bottom:20px;">
     <strong>🔒 Privacy Guidelines for Finders:</strong><br>
-    Do <u>not</u> include the exact color, specific markings, or identifying features. Only post a general description (e.g., "Found a wallet near OAT"). The rightful owner will need to describe these hidden details to prove ownership.
+    Do <u>not</u> include the exact color, specific markings, or identifying features. Only post a general description (e.g., "Found a wallet near OAT"). The rightful owner will describe hidden details to prove ownership.
   </div>
-
   <form method="POST" action="{{ url_for('post_found') }}">
-
     <div class="form-group">
       <label for="brief_description">Brief Description *</label>
       <input type="text" id="brief_description" name="brief_description"
-             placeholder="e.g. 'Found a set of keys at CC Block' or 'Found a wallet near Sidhartha Hall'" required>
+             placeholder="e.g. 'Found a set of keys at CC Block'" required>
       <div class="form-hint">Keep it general — do not include color or specific marks</div>
     </div>
-
     <div class="form-row">
       <div class="form-group">
         <label for="category">Category *</label>
@@ -37,17 +34,20 @@
         <input type="date" id="date_found" name="date_found" required>
       </div>
     </div>
-
     <div class="form-group">
       <label for="location">Location Found *</label>
-      <select id="location" name="location" required>
+      <select id="location" name="location" required onchange="handleLocationChange(this)">
         <option value="">Select location</option>
         {% for loc in locations %}
         <option value="{{ loc }}">{{ loc }}</option>
         {% endfor %}
+        <option value="__custom__">➕ Add new location…</option>
       </select>
+      <div id="customLocationGroup">
+        <input type="text" id="custom_location" name="custom_location" placeholder="Type your location (e.g. Room 204, ECE Block)">
+        <div class="form-hint">This location will be added to the list for everyone.</div>
+      </div>
     </div>
-
     <div style="display:flex;gap:10px;margin-top:16px;">
       <button type="submit" class="btn btn-lg" style="background:var(--found);color:white;border:none;">Post Found Item</button>
       <a href="{{ url_for('dashboard') }}" class="btn btn-outline btn-lg">Cancel</a>
@@ -60,5 +60,16 @@
 <script>
   document.getElementById('date_found').max = new Date().toISOString().split('T')[0];
   document.getElementById('date_found').value = new Date().toISOString().split('T')[0];
+  function handleLocationChange(sel) {
+    const grp = document.getElementById('customLocationGroup');
+    const inp = document.getElementById('custom_location');
+    if (sel.value === '__custom__') {
+      grp.style.display = 'block';
+      inp.required = true;
+    } else {
+      grp.style.display = 'none';
+      inp.required = false;
+    }
+  }
 </script>
 {% endblock %}

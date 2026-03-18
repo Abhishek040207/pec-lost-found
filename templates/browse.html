@@ -7,7 +7,6 @@
   <p>Search for lost items or find items that have been turned in</p>
 </div>
 
-<!-- Filter Bar -->
 <form method="GET" action="{{ url_for('browse') }}">
   <div class="browse-bar">
     <div class="search-input-wrap">
@@ -27,14 +26,9 @@
   </div>
 </form>
 
-<!-- Tabs -->
 <div class="tabs" style="margin-bottom:20px;width:fit-content;">
-  <button class="tab-btn active" data-tab="lost">
-    🔴 Lost Items ({{ lost_items|length }})
-  </button>
-  <button class="tab-btn" data-tab="found">
-    🟢 Found Items ({{ found_items|length }})
-  </button>
+  <button class="tab-btn active" data-tab="lost">🔴 Lost Items ({{ lost_items|length }})</button>
+  <button class="tab-btn" data-tab="found">🟢 Found Items ({{ found_items|length }})</button>
 </div>
 
 <!-- Lost Items -->
@@ -45,7 +39,7 @@
     <div class="card">
       <div class="card-img">
         {% if item.image_path %}
-          <img src="{{ url_for('static', filename=item.image_path) }}" alt="{{ item.item_name }}">
+          <img src="{{ item.image_path }}" alt="{{ item.item_name }}">
         {% else %}
           <div class="card-img-placeholder">📦</div>
         {% endif %}
@@ -62,12 +56,19 @@
         <p style="font-size:.82rem;color:var(--text-2);margin-top:6px;">{{ item.description[:100] }}{% if item.description|length > 100 %}…{% endif %}</p>
         {% endif %}
         <div style="font-size:.78rem;color:var(--text-3);margin-top:6px;">Lost: {{ item.date_lost }}</div>
+        <div class="finder-info" style="background:#fff7ed;border-color:#fed7aa;">
+          <strong>📋 Posted By</strong>
+          <div class="finder-info-row">👤 {{ item.full_name }} · {{ item.department }}</div>
+          <div class="finder-info-row">📞 {{ item.contact }}</div>
+          {% if item.hosteler_status == 'Hosteler' and item.hostel_name %}
+          <div class="finder-info-row">🏠 {{ item.hostel_name }} Hostel</div>
+          {% else %}
+          <div class="finder-info-row">🚌 Day Scholar</div>
+          {% endif %}
+        </div>
       </div>
       <div class="card-footer">
-        <div class="poster-info">
-          <strong>{{ item.full_name.split()[0] }}</strong> · {{ item.department }}
-        </div>
-        <span style="font-size:.72rem;color:var(--text-3);">{{ item.created_at[:10] }}</span>
+        <span class="poster-info">{{ item.created_at[:10] }}</span>
       </div>
     </div>
     {% endfor %}
@@ -87,7 +88,7 @@
     {% for item in found_items %}
     <div class="card">
       <div class="card-img">
-        <div class="card-img-placeholder" style="font-size:3rem;">🟢</div>
+        <div class="card-img-placeholder">🟢</div>
         <span class="card-badge badge-found">Found</span>
       </div>
       <div class="card-body">
@@ -97,14 +98,20 @@
           <span class="meta-tag">📍 {{ item.location }}</span>
         </div>
         <div style="font-size:.78rem;color:var(--text-3);margin-top:6px;">Found: {{ item.date_found }}</div>
-        <div style="font-size:.78rem;color:var(--warn);margin-top:6px;font-weight:500;">
-          ℹ️ Color &amp; details hidden — prove ownership to claim
+        <div style="font-size:.78rem;color:var(--warn);margin-top:6px;font-weight:500;">ℹ️ Color & details hidden — prove ownership to claim</div>
+        <div class="finder-info">
+          <strong>📋 Finder Details</strong>
+          <div class="finder-info-row">👤 {{ item.full_name }} · {{ item.department }}</div>
+          <div class="finder-info-row">📞 {{ item.contact }}</div>
+          {% if item.hosteler_status == 'Hosteler' and item.hostel_name %}
+          <div class="finder-info-row">🏠 {{ item.hostel_name }} Hostel</div>
+          {% else %}
+          <div class="finder-info-row">🚌 Day Scholar</div>
+          {% endif %}
         </div>
       </div>
       <div class="card-footer">
-        <div class="poster-info">
-          <strong>{{ item.full_name.split()[0] }}</strong> · {{ item.department }}
-        </div>
+        <span class="poster-info">{{ item.created_at[:10] }}</span>
         {% if item.user_id != session.user_id %}
         <a href="{{ url_for('claim_item', found_item_id=item.id) }}" class="btn btn-primary btn-sm">Claim →</a>
         {% else %}

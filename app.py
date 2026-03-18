@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 import sqlite3, os, cloudinary, cloudinary.uploader
 from functools import wraps
@@ -64,6 +64,12 @@ def init_db():
             FOREIGN KEY(found_item_id) REFERENCES found_items(id),
             FOREIGN KEY(claimant_user_id) REFERENCES users(id)
         );
+        CREATE TABLE IF NOT EXISTS custom_locations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            location TEXT UNIQUE NOT NULL,
+            added_by INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
     ''')
     conn.commit()
     conn.close()
@@ -98,9 +104,18 @@ def get_current_user():
     conn.close()
     return user
 
+def get_all_locations():
+    base = ['CC Block','OAT','Library','Sidhartha Hall','Canteen','Sports Complex','Main Gate','Hostel Area','Labs','Classroom','Parking']
+    conn = get_db()
+    custom = [r['location'] for r in conn.execute('SELECT location FROM custom_locations ORDER BY location').fetchall()]
+    conn.close()
+    combined = base + [l for l in custom if l not in base]
+    return sorted(combined)
+
 DEPARTMENTS = ['CSE','ECE','EE','ME','CE','AE','IT','MCA','MBA','PHY','CHEM','MATH']
 CATEGORIES = ['Electronics','Keys','Wallet/Purse','ID Card','Books/Notes','Clothing','Accessories','Bag/Backpack','Sports Equipment','Other']
-LOCATIONS = ['CC Block','OAT','Library','Sidhartha Hall','Canteen','Sports Complex','Main Gate','Hostel Area','Labs','Classroom','Parking','Other']
+
+# ─── Auth ─────────────────────────────────────────────────────────────────────
 
 @app.route('/')
 def index():
@@ -153,8 +168,7 @@ def register():
             return render_template('register.html', departments=DEPARTMENTS)
         conn.execute('INSERT INTO users (full_name,department,sid,contact,hosteler_status,hostel_name,password_hash) VALUES (?,?,?,?,?,?,?)',
             (full_name, department, sid, contact, hosteler_status, hostel_name, generate_password_hash(password)))
-        conn.commit()
-        conn.close()
+        conn.commit(); conn.close()
         flash('Registration successful! Please log in.', 'success')
         return redirect(url_for('login'))
     return render_template('register.html', departments=DEPARTMENTS)
@@ -164,6 +178,58 @@ def logout():
     session.clear()
     flash('You have been logged out.', 'info')
     return redirect(url_for('login'))
+
+# ─── Password Reset ───────────────────────────────────────────────────────────
+
+@app.route('/reset-password', methods=['GET','POST'])
+@login_required
+def reset_password():
+    if request.method == 'POST':
+        current = request.form.get('current_password','')
+        new_pass = request.form.get('new_password','')
+        confirm = request.form.get('confirm_password','')
+        user = get_current_user()
+        if not check_password_hash(user['password_hash'], current):
+            flash('Current password is incorrect.', 'error')
+            return render_template('reset_password.html')
+        if new_pass != confirm:
+            flash('New passwords do not match.', 'error')
+            return render_template('reset_password.html')
+        if len(new_pass) < 6:
+            flash('Password must be at least 6 characters.', 'error')
+            return render_template('reset_password.html')
+        conn = get_db()
+        conn.execute('UPDATE users SET password_hash = ? WHERE id = ?', (generate_password_hash(new_pass), session['user_id']))
+        conn.commit(); conn.close()
+        flash('Password updated successfully!', 'success')
+        return redirect(url_for('profile'))
+    return render_template('reset_password.html')
+
+# ─── Delete Account ───────────────────────────────────────────────────────────
+
+@app.route('/delete-account', methods=['POST'])
+@login_required
+def delete_account():
+    password = request.form.get('password','')
+    user = get_current_user()
+    if not check_password_hash(user['password_hash'], password):
+        flash('Incorrect password. Account not deleted.', 'error')
+        return redirect(url_for('profile'))
+    uid = session['user_id']
+    conn = get_db()
+    conn.execute('DELETE FROM claims WHERE claimant_user_id = ?', (uid,))
+    conn.execute('DELETE FROM lost_items WHERE user_id = ?', (uid,))
+    founds = conn.execute('SELECT id FROM found_items WHERE user_id = ?', (uid,)).fetchall()
+    for f in founds:
+        conn.execute('DELETE FROM claims WHERE found_item_id = ?', (f['id'],))
+    conn.execute('DELETE FROM found_items WHERE user_id = ?', (uid,))
+    conn.execute('DELETE FROM users WHERE id = ?', (uid,))
+    conn.commit(); conn.close()
+    session.clear()
+    flash('Your account has been deleted.', 'info')
+    return redirect(url_for('login'))
+
+# ─── Dashboard ────────────────────────────────────────────────────────────────
 
 @app.route('/dashboard')
 @login_required
@@ -181,14 +247,16 @@ def dashboard():
     conn.close()
     return render_template('dashboard.html', user=get_current_user(), my_lost=my_lost, my_found=my_found, my_claims=my_claims)
 
+# ─── Browse ───────────────────────────────────────────────────────────────────
+
 @app.route('/browse')
 @login_required
 def browse():
     conn = get_db()
     category = request.args.get('category','')
     search = request.args.get('search','')
-    lq = 'SELECT l.*, u.full_name, u.department FROM lost_items l JOIN users u ON l.user_id = u.id WHERE l.status = "open"'
-    fq = 'SELECT f.*, u.full_name, u.department FROM found_items f JOIN users u ON f.user_id = u.id WHERE f.status = "open"'
+    lq = 'SELECT l.*, u.full_name, u.department, u.contact, u.hostel_name, u.hosteler_status FROM lost_items l JOIN users u ON l.user_id = u.id WHERE l.status = "open"'
+    fq = 'SELECT f.*, u.full_name, u.department, u.contact, u.hostel_name, u.hosteler_status FROM found_items f JOIN users u ON f.user_id = u.id WHERE f.status = "open"'
     params = []
     if category:
         lq += ' AND l.category = ?'; fq += ' AND f.category = ?'; params.append(category)
@@ -200,10 +268,23 @@ def browse():
     return render_template('browse.html', lost_items=lost_items, found_items=found_items,
                            categories=CATEGORIES, selected_category=category, search=search)
 
+# ─── Post Lost ────────────────────────────────────────────────────────────────
+
 @app.route('/post-lost', methods=['GET','POST'])
 @login_required
 def post_lost():
+    locations = get_all_locations()
     if request.method == 'POST':
+        location = request.form.get('location','').strip()
+        custom_loc = request.form.get('custom_location','').strip()
+        if location == '__custom__' and custom_loc:
+            location = custom_loc
+            conn = get_db()
+            try:
+                conn.execute('INSERT OR IGNORE INTO custom_locations (location, added_by) VALUES (?,?)', (location, session['user_id']))
+                conn.commit()
+            except: pass
+            conn.close()
         image_url = None
         if 'image' in request.files:
             f = request.files['image']
@@ -212,32 +293,48 @@ def post_lost():
         conn = get_db()
         conn.execute('INSERT INTO lost_items (user_id,item_name,category,color,location,image_path,date_lost,description) VALUES (?,?,?,?,?,?,?,?)',
             (session['user_id'], request.form.get('item_name','').strip(), request.form.get('category','').strip(),
-             request.form.get('color','').strip(), request.form.get('location','').strip(),
-             image_url, request.form.get('date_lost','').strip(), request.form.get('description','').strip()))
+             request.form.get('color','').strip(), location, image_url,
+             request.form.get('date_lost','').strip(), request.form.get('description','').strip()))
         conn.commit(); conn.close()
         flash('Lost item posted successfully!', 'success')
         return redirect(url_for('dashboard'))
-    return render_template('post_lost.html', categories=CATEGORIES, locations=LOCATIONS)
+    return render_template('post_lost.html', categories=CATEGORIES, locations=locations)
+
+# ─── Post Found ───────────────────────────────────────────────────────────────
 
 @app.route('/post-found', methods=['GET','POST'])
 @login_required
 def post_found():
+    locations = get_all_locations()
     if request.method == 'POST':
+        location = request.form.get('location','').strip()
+        custom_loc = request.form.get('custom_location','').strip()
+        if location == '__custom__' and custom_loc:
+            location = custom_loc
+            conn = get_db()
+            try:
+                conn.execute('INSERT OR IGNORE INTO custom_locations (location, added_by) VALUES (?,?)', (location, session['user_id']))
+                conn.commit()
+            except: pass
+            conn.close()
         conn = get_db()
         conn.execute('INSERT INTO found_items (user_id,brief_description,category,location,date_found) VALUES (?,?,?,?,?)',
             (session['user_id'], request.form.get('brief_description','').strip(),
-             request.form.get('category','').strip(), request.form.get('location','').strip(),
-             request.form.get('date_found','').strip()))
+             request.form.get('category','').strip(), location, request.form.get('date_found','').strip()))
         conn.commit(); conn.close()
         flash('Found item posted!', 'success')
         return redirect(url_for('dashboard'))
-    return render_template('post_found.html', categories=CATEGORIES, locations=LOCATIONS)
+    return render_template('post_found.html', categories=CATEGORIES, locations=locations)
+
+# ─── Claim ────────────────────────────────────────────────────────────────────
 
 @app.route('/claim/<int:found_item_id>', methods=['GET','POST'])
 @login_required
 def claim_item(found_item_id):
     conn = get_db()
-    found_item = conn.execute('SELECT f.*, u.full_name FROM found_items f JOIN users u ON f.user_id = u.id WHERE f.id = ?', (found_item_id,)).fetchone()
+    found_item = conn.execute(
+        'SELECT f.*, u.full_name, u.department, u.contact, u.hostel_name, u.hosteler_status FROM found_items f JOIN users u ON f.user_id = u.id WHERE f.id = ?',
+        (found_item_id,)).fetchone()
     if not found_item:
         conn.close(); flash('Item not found.', 'error'); return redirect(url_for('browse'))
     if found_item['user_id'] == session['user_id']:
@@ -257,6 +354,8 @@ def claim_item(found_item_id):
     conn.close()
     return render_template('claim.html', found_item=found_item, existing_claim=existing_claim)
 
+# ─── Resolve Claim ────────────────────────────────────────────────────────────
+
 @app.route('/resolve-claim/<int:claim_id>/<action>')
 @login_required
 def resolve_claim(claim_id, action):
@@ -274,6 +373,8 @@ def resolve_claim(claim_id, action):
         flash('Claim rejected.', 'info')
     conn.commit(); conn.close()
     return redirect(url_for('dashboard'))
+
+# ─── Delete ───────────────────────────────────────────────────────────────────
 
 @app.route('/delete-lost/<int:item_id>')
 @login_required
@@ -295,6 +396,8 @@ def delete_found(item_id):
         conn.commit(); flash('Post deleted.', 'info')
     conn.close()
     return redirect(url_for('dashboard'))
+
+# ─── Profile ──────────────────────────────────────────────────────────────────
 
 @app.route('/profile')
 @login_required

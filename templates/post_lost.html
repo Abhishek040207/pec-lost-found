@@ -9,7 +9,6 @@
 
 <div class="form-card">
   <form method="POST" action="{{ url_for('post_lost') }}" enctype="multipart/form-data">
-
     <div class="form-row">
       <div class="form-group">
         <label for="item_name">Item Name *</label>
@@ -25,45 +24,44 @@
         </select>
       </div>
     </div>
-
     <div class="form-row">
       <div class="form-group">
         <label for="color">Color / Appearance *</label>
         <input type="text" id="color" name="color" placeholder="e.g. Black with red stripes" required>
-        <div class="form-hint">Include distinguishing marks, stickers, etc.</div>
       </div>
       <div class="form-group">
         <label for="date_lost">Date Lost *</label>
-        <input type="date" id="date_lost" name="date_lost" required max="{{ now }}">
+        <input type="date" id="date_lost" name="date_lost" required>
       </div>
     </div>
-
     <div class="form-group">
       <label for="location">Last Seen Location *</label>
-      <select id="location" name="location" required>
+      <select id="location" name="location" required onchange="handleLocationChange(this)">
         <option value="">Select location</option>
         {% for loc in locations %}
         <option value="{{ loc }}">{{ loc }}</option>
         {% endfor %}
+        <option value="__custom__">➕ Add new location…</option>
       </select>
+      <div id="customLocationGroup">
+        <input type="text" id="custom_location" name="custom_location" placeholder="Type your location (e.g. Room 204, ECE Block)">
+        <div class="form-hint">This location will be added to the list for everyone.</div>
+      </div>
     </div>
-
     <div class="form-group">
       <label for="description">Additional Description</label>
-      <textarea id="description" name="description" placeholder="Any extra details — model number, sentimental value, unique identifiers…"></textarea>
+      <textarea id="description" name="description" placeholder="Any extra details — model number, unique identifiers, sentimental value…"></textarea>
     </div>
-
     <div class="form-group">
       <label>Upload Image (optional)</label>
       <div class="file-drop">
         <input type="file" id="imageInput" name="image" accept="image/*">
         <div class="file-drop-icon">📷</div>
-        <p>Drag &amp; drop or click to upload</p>
+        <p>Drag & drop or click to upload</p>
         <small>PNG, JPG, WEBP — max 10MB</small>
       </div>
       <div id="imagePreview"><img src="" alt="Preview"></div>
     </div>
-
     <div style="display:flex;gap:10px;margin-top:8px;">
       <button type="submit" class="btn btn-primary btn-lg">Post Lost Item</button>
       <a href="{{ url_for('dashboard') }}" class="btn btn-outline btn-lg">Cancel</a>
@@ -74,7 +72,17 @@
 
 {% block extra_js %}
 <script>
-  // Set max date to today
   document.getElementById('date_lost').max = new Date().toISOString().split('T')[0];
+  function handleLocationChange(sel) {
+    const grp = document.getElementById('customLocationGroup');
+    const inp = document.getElementById('custom_location');
+    if (sel.value === '__custom__') {
+      grp.style.display = 'block';
+      inp.required = true;
+    } else {
+      grp.style.display = 'none';
+      inp.required = false;
+    }
+  }
 </script>
 {% endblock %}
