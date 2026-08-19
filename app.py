@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, Response
 from werkzeug.security import generate_password_hash, check_password_hash
 import sqlite3, os, cloudinary, cloudinary.uploader
 from functools import wraps
@@ -416,6 +416,25 @@ def profile():
 @app.route('/google895b8fa8bed373f0.html')
 def google_verify():
     return 'google-site-verification: google895b8fa8bed373f0.html'
+
+@app.route('/robots.txt')
+def robots_txt():
+    content = """User-agent: *
+Allow: /
+
+Sitemap: https://pec-lost-found.onrender.com/sitemap.xml
+"""
+    return Response(content, mimetype='text/plain')
+
+@app.route('/sitemap.xml')
+def sitemap_xml():
+    pages = ['/', '/login', '/register']
+    xml = ['<?xml version="1.0" encoding="UTF-8"?>',
+           '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+    for page in pages:
+        xml.append(f'  <url><loc>https://pec-lost-found.onrender.com{page}</loc></url>')
+    xml.append('</urlset>')
+    return Response('\n'.join(xml), mimetype='application/xml')
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
