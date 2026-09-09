@@ -1,6 +1,12 @@
-# PEC Lost & Found — Setup Guide
+# PEC Lost & Found
 
-## Prerequisites
+🔗 **Live site:** [https://pec-lost-found.onrender.com](https://pec-lost-found.onrender.com)
+
+A full-stack web app for Punjab Engineering College students to report, browse, and claim lost and found items on campus.
+
+## Setup Guide
+
+### Prerequisites
 - Python 3.8+ (comes with SQLite built-in)
 - pip
 
