@@ -119,7 +119,9 @@ CATEGORIES = ['Electronics','Keys','Wallet/Purse','ID Card','Books/Notes','Cloth
 
 @app.route('/')
 def index():
-    return redirect(url_for('dashboard') if 'user_id' in session else url_for('login'))
+    if 'user_id' in session:
+        return redirect(url_for('dashboard'))
+    return render_template('login.html')
 
 @app.route('/login', methods=['GET','POST'])
 def login():
