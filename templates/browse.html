@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}Browse Items — PEC Lost & Found{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Browse Items</h1>
+  <p>Search for lost items or find items that have been turned in</p>
+</div>
+
+<form method="GET" action="{{ url_for('browse') }}">
+  <div class="browse-bar">
+    <div class="search-input-wrap">
+      <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input type="text" name="search" value="{{ search }}" placeholder="Search by item name or location…">
+    </div>
+    <select name="category" style="width:auto;min-width:160px;">
+      <option value="">All Categories</option>
+      {% for cat in categories %}
+      <option value="{{ cat }}" {% if selected_category == cat %}selected{% endif %}>{{ cat }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-primary">Filter</button>
+    {% if search or selected_category %}
+    <a href="{{ url_for('browse') }}" class="btn btn-outline">Clear</a>
+    {% endif %}
+  </div>
+</form>
+
+<div class="tabs" style="margin-bottom:20px;width:fit-content;">
+  <button class="tab-btn active" data-tab="lost">🔴 Lost Items ({{ total_lost }})</button>
+  <button class="tab-btn" data-tab="found">🟢 Found Items ({{ total_found }})</button>
+</div>
+
+<!-- Lost Items -->
+<div id="lostSection">
+  {% if lost_items %}
+  <div class="cards-grid">
+    {% for item in lost_items %}
+    <div class="card">
+      <div class="card-img">
+        {% if item.image_path %}
+          <img src="{{ item.image_path }}" alt="{{ item.item_name }}">
+        {% else %}
+          <div class="card-img-placeholder">📦</div>
+        {% endif %}
+        <span class="card-badge badge-lost">Lost</span>
+      </div>
+      <div class="card-body">
+        <div class="card-title">{{ item.item_name }}</div>
+        <div class="card-meta">
+          <span class="meta-tag">📁 {{ item.category }}</span>
+          <span class="meta-tag">📍 {{ item.location }}</span>
+          <span class="meta-tag">🎨 {{ item.color }}</span>
+        </div>
+        {% if item.description %}
+        <p style="font-size:.82rem;color:var(--text-2);margin-top:6px;">{{ item.description[:100] }}{% if item.description|length > 100 %}…{% endif %}</p>
+        {% endif %}
+        <div style="font-size:.78rem;color:var(--text-3);margin-top:6px;">Lost: {{ item.date_lost }}</div>
+        {% if session.user_id %}
+        <div class="finder-info" style="background:#fff7ed;border-color:#fed7aa;">
+          <strong>📋 Posted By</strong>
+          <div class="finder-info-row">👤 {{ item.full_name }}</div>
+          <div class="finder-info-row">📞 {{ item.contact }}</div>
+        </div>
+        {% else %}
+        <div class="finder-info" style="text-align:center;">
+          <a href="{{ url_for('login', next=url_for('browse')) }}" style="font-size:.82rem;font-weight:600;">🔒 Sign in to view contact details</a>
+        </div>
+        {% endif %}
+      </div>
+      <div class="card-footer">
+        <span class="poster-info">{{ item.created_at[:10] }}</span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Lost pagination -->
+  {% if total_lost_pages > 1 %}
+  <div class="pagination" style="display:flex;gap:8px;align-items:center;justify-content:center;margin-top:24px;flex-wrap:wrap;">
+    {% if page > 1 %}
+    <a href="{{ url_for('browse', page=page-1, search=search, category=selected_category) }}" class="btn btn-outline btn-sm">← Prev</a>
+    {% endif %}
+    <span style="font-size:.85rem;color:var(--text-2);">Page {{ page }} of {{ total_lost_pages }}</span>
+    {% if page < total_lost_pages %}
+    <a href="{{ url_for('browse', page=page+1, search=search, category=selected_category) }}" class="btn btn-outline btn-sm">Next →</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">🔍</div>
+    <p>No lost items found{% if search %} for "{{ search }}"{% endif %}.</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Found Items -->
+<div id="foundSection" style="display:none;">
+  {% if found_items %}
+  <div class="cards-grid">
+    {% for item in found_items %}
+    <div class="card">
+      <div class="card-img">
+        <div class="card-img-placeholder">🟢</div>
+        <span class="card-badge badge-found">Found</span>
+      </div>
+      <div class="card-body">
+        <div class="card-title">{{ item.brief_description }}</div>
+        <div class="card-meta">
+          <span class="meta-tag">📁 {{ item.category }}</span>
+          <span class="meta-tag">📍 {{ item.location }}</span>
+        </div>
+        <div style="font-size:.78rem;color:var(--text-3);margin-top:6px;">Found: {{ item.date_found }}</div>
+        <div style="font-size:.78rem;color:var(--warn);margin-top:6px;font-weight:500;">ℹ️ Color &amp; details hidden — prove ownership to claim</div>
+        {% if session.user_id %}
+        <div class="finder-info">
+          <strong>📋 Finder Details</strong>
+          <div class="finder-info-row">👤 {{ item.full_name }}</div>
+          <div class="finder-info-row">📞 {{ item.contact }}</div>
+        </div>
+        {% else %}
+        <div class="finder-info" style="text-align:center;">
+          <a href="{{ url_for('login', next=url_for('browse')) }}" style="font-size:.82rem;font-weight:600;">🔒 Sign in to view finder details</a>
+        </div>
+        {% endif %}
+      </div>
+      <div class="card-footer">
+        <span class="poster-info">{{ item.created_at[:10] }}</span>
+        {% if session.user_id %}
+          {% if item.user_id != session.user_id %}
+          <a href="{{ url_for('claim_item', found_item_id=item.id) }}" class="btn btn-primary btn-sm">Claim →</a>
+          {% else %}
+          <span class="btn btn-outline btn-sm" style="cursor:default;opacity:.5;">Your Post</span>
+          {% endif %}
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Found pagination -->
+  {% if total_found_pages > 1 %}
+  <div class="pagination" style="display:flex;gap:8px;align-items:center;justify-content:center;margin-top:24px;flex-wrap:wrap;">
+    {% if page > 1 %}
+    <a href="{{ url_for('browse', page=page-1, search=search, category=selected_category) }}" class="btn btn-outline btn-sm">← Prev</a>
+    {% endif %}
+    <span style="font-size:.85rem;color:var(--text-2);">Page {{ page }} of {{ total_found_pages }}</span>
+    {% if page < total_found_pages %}
+    <a href="{{ url_for('browse', page=page+1, search=search, category=selected_category) }}" class="btn btn-outline btn-sm">Next →</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">📬</div>
+    <p>No found items listed{% if search %} for "{{ search }}"{% endif %}.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

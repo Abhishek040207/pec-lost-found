@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Profile — PEC Lost & Found{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>My Profile</h1>
+  <p>Your account details and activity summary</p>
+</div>
+
+<div class="profile-hero">
+  <div class="profile-avatar">{{ user.full_name[0].upper() }}</div>
+  <div>
+    <div class="profile-name">{{ user.full_name }}</div>
+    <div class="profile-dept">Punjab Engineering College</div>
+    <div class="profile-badges">
+      <span class="profile-badge">{{ user.email }}</span>
+    </div>
+  </div>
+</div>
+
+<div class="stats-row" style="margin-bottom:28px;">
+  <div class="stat-card red"><div class="stat-label">Lost Posted</div><div class="stat-value">{{ stats.lost_posted }}</div></div>
+  <div class="stat-card green"><div class="stat-label">Found Posted</div><div class="stat-value">{{ stats.found_posted }}</div></div>
+  <div class="stat-card blue"><div class="stat-label">Items Returned</div><div class="stat-value">{{ stats.resolved }}</div></div>
+</div>
+
+<div class="section-title" style="margin-bottom:12px;">Contact Information</div>
+<div class="info-grid">
+  <div class="info-item"><div class="info-label">Full Name</div><div class="info-value">{{ user.full_name }}</div></div>
+  <div class="info-item"><div class="info-label">PEC Email</div><div class="info-value">{{ user.email }}</div></div>
+  <div class="info-item"><div class="info-label">Contact</div><div class="info-value">{{ user.contact }}</div></div>
+  <div class="info-item"><div class="info-label">Joined</div><div class="info-value">{{ user.created_at[:10] }}</div></div>
+</div>
+
+<hr class="divider">
+
+<!-- Danger Zone -->
+<div class="danger-zone">
+  <h3>⚠️ Danger Zone</h3>
+  <p>Permanently delete your account and all your posts. This action <strong>cannot be undone</strong>.</p>
+  <button class="btn btn-danger" onclick="document.getElementById('deleteModal').style.display='flex'">Delete My Account</button>
+</div>
+
+<!-- Delete Modal -->
+<div id="deleteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px;max-width:400px;width:90%;box-shadow:0 25px 60px rgba(0,0,0,.6);">
+    <h3 style="font-family:var(--font-display);color:var(--lost);margin-bottom:10px;">Delete Account</h3>
+    <p style="font-size:.875rem;color:var(--text-2);margin-bottom:16px;">This will permanently delete your account and all your posts. This cannot be undone.</p>
+    <form method="POST" action="{{ url_for('delete_account') }}">
+      <div style="display:flex;gap:10px;margin-top:8px;">
+        <button type="submit" class="btn btn-danger">Yes, Delete Account</button>
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('deleteModal').style.display='none'">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

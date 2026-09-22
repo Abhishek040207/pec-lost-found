@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Post Found Item — PEC Lost & Found{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Post a Found Item</h1>
+  <p>Keep details brief — the true owner must verify by describing hidden details</p>
+</div>
+
+<div class="form-card">
+  <div class="warning-box" style="margin-bottom:20px;">
+    <strong>🔒 Privacy Guidelines for Finders:</strong><br>
+    Do <u>not</u> include the exact color, specific markings, or identifying features. Only post a general description (e.g., "Found a wallet near Library"). The rightful owner will describe hidden details to prove ownership.
+  </div>
+  <form method="POST" action="{{ url_for('post_found') }}">
+    <div class="form-group">
+      <label for="brief_description">Brief Description *</label>
+      <input type="text" id="brief_description" name="brief_description"
+             placeholder="e.g. 'Found a set of keys at ECE Department'" required>
+      <div class="form-hint">Keep it general — do not include color or specific marks</div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="category">Category *</label>
+        <select id="category" name="category" required>
+          <option value="">Select category</option>
+          {% for cat in categories %}
+          <option value="{{ cat }}">{{ cat }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="date_found">Date Found *</label>
+        <input type="date" id="date_found" name="date_found" required>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="location">Area / Zone *</label>
+        <select id="location" name="location" required onchange="handleLocationChange(this)">
+          <option value="">Select area</option>
+          {% for loc in locations %}
+          <option value="{{ loc }}">{{ loc }}</option>
+          {% endfor %}
+          <option value="__custom__">➕ Add new location…</option>
+        </select>
+        <div id="customLocationGroup">
+          <input type="text" id="custom_location" name="custom_location" placeholder="Type new location name">
+          <div class="form-hint">This will be saved for everyone to use.</div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="exact_location">Exact Spot <span style="color:var(--text-3);font-weight:400;text-transform:none;">(optional)</span></label>
+        <input type="text" id="exact_location" name="exact_location" placeholder="e.g. Near entrance, Left side bench, Lab 3…">
+        <div class="form-hint">Helps the owner locate the item more precisely.</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:16px;">
+      <button type="submit" class="btn btn-lg" style="background:var(--found);color:white;border:none;">Post Found Item</button>
+      <a href="{{ url_for('dashboard') }}" class="btn btn-outline btn-lg">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  document.getElementById('date_found').max = new Date().toISOString().split('T')[0];
+  document.getElementById('date_found').value = new Date().toISOString().split('T')[0];
+  function handleLocationChange(sel) {
+    const grp = document.getElementById('customLocationGroup');
+    const inp = document.getElementById('custom_location');
+    if (sel.value === '__custom__') {
+      grp.style.display = 'block';
+      inp.required = true;
+    } else {
+      grp.style.display = 'none';
+      inp.required = false;
+    }
+  }
+</script>
+{% endblock %}
