@@ -29,7 +29,7 @@
   <div class="info-item"><div class="info-label">Full Name</div><div class="info-value">{{ user.full_name }}</div></div>
   <div class="info-item"><div class="info-label">PEC Email</div><div class="info-value">{{ user.email }}</div></div>
   <div class="info-item"><div class="info-label">Contact</div><div class="info-value">{{ user.contact }}</div></div>
-  <div class="info-item"><div class="info-label">Joined</div><div class="info-value">{{ user.created_at[:10] }}</div></div>
+  <div class="info-item"><div class="info-label">Joined</div><div class="info-value">{{ user.created_at | datefmt }}</div></div>
 </div>
 
 <hr class="divider">

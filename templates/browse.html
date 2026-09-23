@@ -69,7 +69,7 @@
         {% endif %}
       </div>
       <div class="card-footer">
-        <span class="poster-info">{{ item.created_at[:10] }}</span>
+        <span class="poster-info">{{ item.created_at | datefmt }}</span>
       </div>
     </div>
     {% endfor %}
@@ -127,7 +127,7 @@
         {% endif %}
       </div>
       <div class="card-footer">
-        <span class="poster-info">{{ item.created_at[:10] }}</span>
+        <span class="poster-info">{{ item.created_at | datefmt }}</span>
         {% if session.user_id %}
           {% if item.user_id != session.user_id %}
           <a href="{{ url_for('claim_item', found_item_id=item.id) }}" class="btn btn-primary btn-sm">Claim →</a>

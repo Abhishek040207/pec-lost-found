@@ -23,7 +23,7 @@
   <div class="claim-card">
     <div class="claim-header">
       <div><strong>{{ claim.full_name }}</strong></div>
-      <span style="font-size:.75rem;color:var(--text-3);">{{ claim.created_at[:10] }}</span>
+      <span style="font-size:.75rem;color:var(--text-3);">{{ claim.created_at | datefmt }}</span>
     </div>
     <div class="claim-body">Claiming: <em>"{{ claim.brief_description }}"</em> &nbsp;·&nbsp; Contact: <strong>{{ claim.contact }}</strong></div>
     <div class="claim-detail-box">
@@ -71,7 +71,7 @@
         <div style="font-size:.8rem;color:var(--text-3);">Lost on {{ item.date_lost }}</div>
       </div>
       <div class="card-footer">
-        <span class="poster-info">{{ item.created_at[:10] }}</span>
+        <span class="poster-info">{{ item.created_at | datefmt }}</span>
         <form method="POST" action="{{ url_for('delete_lost', item_id=item.id) }}" style="display:inline;" onsubmit="return confirm('Delete this post permanently?')">
           <button type="submit" class="btn btn-danger btn-sm">Delete</button>
         </form>
@@ -107,7 +107,7 @@
         <div style="font-size:.8rem;color:var(--text-3);">Found on {{ item.date_found }}</div>
       </div>
       <div class="card-footer">
-        <span class="poster-info">{{ item.created_at[:10] }}</span>
+        <span class="poster-info">{{ item.created_at | datefmt }}</span>
         {% if item.status != 'resolved' %}
         <form method="POST" action="{{ url_for('delete_found', item_id=item.id) }}" style="display:inline;" onsubmit="return confirm('Delete this post and all its claims?')">
           <button type="submit" class="btn btn-danger btn-sm">Delete</button>

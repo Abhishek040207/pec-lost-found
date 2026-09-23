@@ -269,6 +269,13 @@ def get_all_locations():
 CATEGORIES = ['Electronics', 'Keys', 'Wallet/Purse', 'ID Card', 'Books/Notes', 'Clothing', 'Accessories', 'Bag/Backpack', 'Sports Equipment', 'Other']
 PAGE_SIZE = 20
 
+@app.template_filter('datefmt')
+def datefmt(value):
+    """Format a datetime object or string as YYYY-MM-DD for templates."""
+    if hasattr(value, 'strftime'):
+        return value.strftime('%Y-%m-%d')
+    return str(value)[:10]
+
 # ─── Auth ─────────────────────────────────────────────────────────────────────
 
 @app.route('/')
