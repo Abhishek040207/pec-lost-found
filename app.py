@@ -1,5 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, Response, jsonify
-import sqlite3, os, cloudinary, cloudinary.uploader, smtplib, threading
+import os, cloudinary, cloudinary.uploader, smtplib, threading
+import psycopg2
+import psycopg2.extras
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from functools import wraps
@@ -13,16 +15,28 @@ except ImportError:
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'pec_lost_found_secret_2024')
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, 'pec_lostfound.db')
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
-ALLOWED_EXTENSIONS = {'png','jpg','jpeg','gif','webp'}
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 
-cloudinary.config(
-    cloud_name=os.environ.get('CLOUDINARY_CLOUD_NAME'),
-    api_key=os.environ.get('CLOUDINARY_API_KEY'),
-    api_secret=os.environ.get('CLOUDINARY_API_SECRET')
+# ─── Cloudinary ───────────────────────────────────────────────────────────────
+
+_cloudinary_configured = bool(
+    os.environ.get('CLOUDINARY_CLOUD_NAME') and
+    os.environ.get('CLOUDINARY_API_KEY') and
+    os.environ.get('CLOUDINARY_API_SECRET')
 )
+
+if _cloudinary_configured:
+    cloudinary.config(
+        cloud_name=os.environ.get('CLOUDINARY_CLOUD_NAME'),
+        api_key=os.environ.get('CLOUDINARY_API_KEY'),
+        api_secret=os.environ.get('CLOUDINARY_API_SECRET')
+    )
+else:
+    print("⚠️  WARNING: Cloudinary credentials not set. Image uploads will be disabled.")
+    print("   Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET in env.")
+
+# ─── OAuth ────────────────────────────────────────────────────────────────────
 
 oauth = OAuth(app)
 oauth.register(
@@ -33,93 +47,118 @@ oauth.register(
     client_kwargs={'scope': 'openid email profile'}
 )
 
+# ─── Database ─────────────────────────────────────────────────────────────────
+
+DATABASE_URL = os.environ.get('DATABASE_URL', '')
+
+# Render provides postgres:// but psycopg2 needs postgresql://
+if DATABASE_URL.startswith('postgres://'):
+    DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    """Open a new PostgreSQL connection with dict-like row access."""
+    conn = psycopg2.connect(DATABASE_URL)
     return conn
 
+def db_execute(conn, sql, params=None):
+    """Execute a single statement and return the cursor."""
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(sql, params or ())
+    return cur
+
 def init_db():
+    """Create tables if they don't exist, and run any needed migrations."""
     conn = get_db()
-    conn.executescript('''
+    cur = conn.cursor()
+
+    # Create tables
+    cur.execute('''
         CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            full_name TEXT NOT NULL, department TEXT NOT NULL,
-            email TEXT UNIQUE NOT NULL, contact TEXT NOT NULL,
+            id SERIAL PRIMARY KEY,
+            full_name TEXT NOT NULL,
+            department TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            contact TEXT NOT NULL,
             hosteler_status TEXT NOT NULL DEFAULT 'Day Scholar',
-            hostel_name TEXT, password_hash TEXT NOT NULL,
+            hostel_name TEXT,
+            password_hash TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
+        )
+    ''')
+
+    cur.execute('''
         CREATE TABLE IF NOT EXISTS lost_items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL, item_name TEXT NOT NULL,
-            category TEXT NOT NULL, color TEXT NOT NULL,
-            location TEXT NOT NULL, image_path TEXT,
-            date_lost DATE NOT NULL, description TEXT,
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            item_name TEXT NOT NULL,
+            category TEXT NOT NULL,
+            color TEXT NOT NULL,
+            location TEXT NOT NULL,
+            exact_location TEXT,
+            image_path TEXT,
+            date_lost DATE NOT NULL,
+            description TEXT,
             status TEXT DEFAULT 'open',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(id)
-        );
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    cur.execute('''
         CREATE TABLE IF NOT EXISTS found_items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL, brief_description TEXT NOT NULL,
-            category TEXT NOT NULL, location TEXT NOT NULL,
-            date_found DATE NOT NULL, status TEXT DEFAULT 'open',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(id)
-        );
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            brief_description TEXT NOT NULL,
+            category TEXT NOT NULL,
+            location TEXT NOT NULL,
+            exact_location TEXT,
+            date_found DATE NOT NULL,
+            status TEXT DEFAULT 'open',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    cur.execute('''
         CREATE TABLE IF NOT EXISTS claims (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            found_item_id INTEGER NOT NULL, claimant_user_id INTEGER NOT NULL,
-            hidden_details TEXT NOT NULL, status TEXT DEFAULT 'pending',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(found_item_id) REFERENCES found_items(id),
-            FOREIGN KEY(claimant_user_id) REFERENCES users(id)
-        );
+            id SERIAL PRIMARY KEY,
+            found_item_id INTEGER NOT NULL REFERENCES found_items(id),
+            claimant_user_id INTEGER NOT NULL REFERENCES users(id),
+            hidden_details TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    cur.execute('''
         CREATE TABLE IF NOT EXISTS custom_locations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             location TEXT UNIQUE NOT NULL,
             added_by INTEGER NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
+        )
+    ''')
+
+    cur.execute('''
         CREATE TABLE IF NOT EXISTS notifications (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
             type TEXT NOT NULL,
             message TEXT NOT NULL,
             link TEXT,
             is_read INTEGER DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(id)
-        );
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
     ''')
-    # Migration: add email column for existing databases that predate this field
-    try:
-        conn.execute('ALTER TABLE users ADD COLUMN email TEXT')
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass  # column already exists
-    # Migration: drop the old sid column now that login/registration no longer use it
-    try:
-        conn.execute('ALTER TABLE users DROP COLUMN sid')
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass  # column already removed, or SQLite version doesn't support DROP COLUMN
-    # Migration: add exact_location column to lost_items
-    try:
-        conn.execute('ALTER TABLE lost_items ADD COLUMN exact_location TEXT')
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass
-    # Migration: add exact_location column to found_items
-    try:
-        conn.execute('ALTER TABLE found_items ADD COLUMN exact_location TEXT')
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass
+
     conn.commit()
+    cur.close()
     conn.close()
 
-init_db()
+try:
+    init_db()
+    print("✅ Database initialized successfully.")
+except Exception as e:
+    print(f"❌ Database initialization failed: {e}")
+    print("   Ensure DATABASE_URL is set correctly in your environment variables.")
 
 PEC_EMAIL_DOMAIN = '@pec.edu.in'
 MAIL_USERNAME = os.environ.get('MAIL_USERNAME', '')
@@ -131,8 +170,8 @@ def create_notification(user_id, notif_type, message, link=None):
     """Store an in-app notification for a user."""
     try:
         conn = get_db()
-        conn.execute(
-            'INSERT INTO notifications (user_id, type, message, link) VALUES (?,?,?,?)',
+        db_execute(conn,
+            'INSERT INTO notifications (user_id, type, message, link) VALUES (%s,%s,%s,%s)',
             (user_id, notif_type, message, link)
         )
         conn.commit()
@@ -183,11 +222,15 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def upload_image(file):
+    """Upload image to Cloudinary and return the secure URL, or None on failure."""
+    if not _cloudinary_configured:
+        print("⚠️  Image upload skipped: Cloudinary credentials not configured.")
+        return None
     try:
         result = cloudinary.uploader.upload(file, folder='pec_lost_found')
         return result['secure_url']
     except Exception as e:
-        print(f"Cloudinary error: {e}")
+        print(f"Cloudinary upload error: {e}")
         return None
 
 def login_required(f):
@@ -202,7 +245,8 @@ def get_current_user():
     if 'user_id' not in session:
         return None
     conn = get_db()
-    user = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
+    cur = db_execute(conn, 'SELECT * FROM users WHERE id = %s', (session['user_id'],))
+    user = cur.fetchone()
     conn.close()
     return user
 
@@ -216,12 +260,13 @@ def get_all_locations():
         'Kurukshetra Hostel', 'Kalpana Chawla Hostel', 'Vindhya Hostel'
     ]
     conn = get_db()
-    custom = [r['location'] for r in conn.execute('SELECT location FROM custom_locations ORDER BY location').fetchall()]
+    cur = db_execute(conn, 'SELECT location FROM custom_locations ORDER BY location')
+    custom = [r['location'] for r in cur.fetchall()]
     conn.close()
     combined = base + [l for l in custom if l not in base]
     return sorted(combined)
 
-CATEGORIES = ['Electronics','Keys','Wallet/Purse','ID Card','Books/Notes','Clothing','Accessories','Bag/Backpack','Sports Equipment','Other']
+CATEGORIES = ['Electronics', 'Keys', 'Wallet/Purse', 'ID Card', 'Books/Notes', 'Clothing', 'Accessories', 'Bag/Backpack', 'Sports Equipment', 'Other']
 PAGE_SIZE = 20
 
 # ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -264,13 +309,16 @@ def google_callback():
         flash('Please sign in with your PEC email ID (must end in @pec.edu.in).', 'error')
         return redirect(url_for('login'))
     conn = get_db()
-    user = conn.execute('SELECT * FROM users WHERE LOWER(email) = ?', (email,)).fetchone()
+    cur = db_execute(conn, 'SELECT * FROM users WHERE LOWER(email) = %s', (email,))
+    user = cur.fetchone()
     is_new = False
     if not user:
-        conn.execute('INSERT INTO users (full_name,department,email,contact,hosteler_status,hostel_name,password_hash) VALUES (?,?,?,?,?,?,?)',
+        db_execute(conn,
+            'INSERT INTO users (full_name,department,email,contact,hosteler_status,hostel_name,password_hash) VALUES (%s,%s,%s,%s,%s,%s,%s)',
             (name, '', email, '', 'Day Scholar', None, ''))
         conn.commit()
-        user = conn.execute('SELECT * FROM users WHERE LOWER(email) = ?', (email,)).fetchone()
+        cur = db_execute(conn, 'SELECT * FROM users WHERE LOWER(email) = %s', (email,))
+        user = cur.fetchone()
         is_new = True
     conn.close()
     session['user_id'] = user['id']
@@ -282,20 +330,21 @@ def google_callback():
     flash(f'Welcome, {user["full_name"].split()[0]}!', 'success')
     return redirect(next_url)
 
-@app.route('/complete-profile', methods=['GET','POST'])
+@app.route('/complete-profile', methods=['GET', 'POST'])
 @login_required
 def complete_profile():
     user = get_current_user()
     if request.method == 'POST':
-        full_name = request.form.get('full_name','').strip()
-        contact = request.form.get('contact','').strip()
+        full_name = request.form.get('full_name', '').strip()
+        contact = request.form.get('contact', '').strip()
         if not full_name or not contact:
             flash('Please fill in your name and contact number.', 'error')
             return render_template('complete_profile.html', user=user)
         conn = get_db()
-        conn.execute('UPDATE users SET full_name=?, contact=? WHERE id=?',
+        db_execute(conn, 'UPDATE users SET full_name=%s, contact=%s WHERE id=%s',
             (full_name, contact, session['user_id']))
-        conn.commit(); conn.close()
+        conn.commit()
+        conn.close()
         session['user_name'] = full_name
         flash('Profile completed!', 'success')
         next_url = session.pop('profile_next', None) or url_for('dashboard')
@@ -315,14 +364,16 @@ def logout():
 def delete_account():
     uid = session['user_id']
     conn = get_db()
-    conn.execute('DELETE FROM claims WHERE claimant_user_id = ?', (uid,))
-    conn.execute('DELETE FROM lost_items WHERE user_id = ?', (uid,))
-    founds = conn.execute('SELECT id FROM found_items WHERE user_id = ?', (uid,)).fetchall()
+    db_execute(conn, 'DELETE FROM claims WHERE claimant_user_id = %s', (uid,))
+    db_execute(conn, 'DELETE FROM lost_items WHERE user_id = %s', (uid,))
+    cur = db_execute(conn, 'SELECT id FROM found_items WHERE user_id = %s', (uid,))
+    founds = cur.fetchall()
     for f in founds:
-        conn.execute('DELETE FROM claims WHERE found_item_id = ?', (f['id'],))
-    conn.execute('DELETE FROM found_items WHERE user_id = ?', (uid,))
-    conn.execute('DELETE FROM users WHERE id = ?', (uid,))
-    conn.commit(); conn.close()
+        db_execute(conn, 'DELETE FROM claims WHERE found_item_id = %s', (f['id'],))
+    db_execute(conn, 'DELETE FROM found_items WHERE user_id = %s', (uid,))
+    db_execute(conn, 'DELETE FROM users WHERE id = %s', (uid,))
+    conn.commit()
+    conn.close()
     session.clear()
     flash('Your account has been deleted.', 'info')
     return redirect(url_for('login'))
@@ -334,14 +385,17 @@ def delete_account():
 def dashboard():
     conn = get_db()
     uid = session['user_id']
-    my_lost = conn.execute('SELECT * FROM lost_items WHERE user_id = ? ORDER BY created_at DESC', (uid,)).fetchall()
-    my_found = conn.execute('SELECT * FROM found_items WHERE user_id = ? ORDER BY created_at DESC', (uid,)).fetchall()
-    my_claims = conn.execute('''
+    cur = db_execute(conn, 'SELECT * FROM lost_items WHERE user_id = %s ORDER BY created_at DESC', (uid,))
+    my_lost = cur.fetchall()
+    cur = db_execute(conn, 'SELECT * FROM found_items WHERE user_id = %s ORDER BY created_at DESC', (uid,))
+    my_found = cur.fetchall()
+    cur = db_execute(conn, '''
         SELECT c.*, u.full_name, u.department, u.contact, f.brief_description
         FROM claims c JOIN users u ON c.claimant_user_id = u.id
         JOIN found_items f ON c.found_item_id = f.id
-        WHERE f.user_id = ? AND c.status = 'pending' ORDER BY c.created_at DESC
-    ''', (uid,)).fetchall()
+        WHERE f.user_id = %s AND c.status = 'pending' ORDER BY c.created_at DESC
+    ''', (uid,))
+    my_claims = cur.fetchall()
     conn.close()
     return render_template('dashboard.html', user=get_current_user(), my_lost=my_lost, my_found=my_found, my_claims=my_claims)
 
@@ -355,29 +409,33 @@ def browse():
     page = max(1, int(request.args.get('page', 1)))
     offset = (page - 1) * PAGE_SIZE
 
-    lq_base = 'SELECT l.*, u.full_name, u.contact FROM lost_items l JOIN users u ON l.user_id = u.id WHERE l.status = "open"'
-    fq_base = 'SELECT f.*, u.full_name, u.contact FROM found_items f JOIN users u ON f.user_id = u.id WHERE f.status = "open"'
-    count_lq = 'SELECT COUNT(*) FROM lost_items l JOIN users u ON l.user_id = u.id WHERE l.status = "open"'
-    count_fq = 'SELECT COUNT(*) FROM found_items f JOIN users u ON f.user_id = u.id WHERE f.status = "open"'
+    lq_base = 'SELECT l.*, u.full_name, u.contact FROM lost_items l JOIN users u ON l.user_id = u.id WHERE l.status = \'open\''
+    fq_base = 'SELECT f.*, u.full_name, u.contact FROM found_items f JOIN users u ON f.user_id = u.id WHERE f.status = \'open\''
+    count_lq = 'SELECT COUNT(*) FROM lost_items l JOIN users u ON l.user_id = u.id WHERE l.status = \'open\''
+    count_fq = 'SELECT COUNT(*) FROM found_items f JOIN users u ON f.user_id = u.id WHERE f.status = \'open\''
 
     params = []
     if category:
-        lq_base += ' AND l.category = ?'
-        fq_base += ' AND f.category = ?'
-        count_lq += ' AND l.category = ?'
-        count_fq += ' AND f.category = ?'
+        lq_base += ' AND l.category = %s'
+        fq_base += ' AND f.category = %s'
+        count_lq += ' AND l.category = %s'
+        count_fq += ' AND f.category = %s'
         params.append(category)
     if search:
-        lq_base += ' AND (l.item_name LIKE ? OR l.location LIKE ?)'
-        fq_base += ' AND (f.brief_description LIKE ? OR f.location LIKE ?)'
-        count_lq += ' AND (l.item_name LIKE ? OR l.location LIKE ?)'
-        count_fq += ' AND (f.brief_description LIKE ? OR f.location LIKE ?)'
+        lq_base += ' AND (l.item_name ILIKE %s OR l.location ILIKE %s)'
+        fq_base += ' AND (f.brief_description ILIKE %s OR f.location ILIKE %s)'
+        count_lq += ' AND (l.item_name ILIKE %s OR l.location ILIKE %s)'
+        count_fq += ' AND (f.brief_description ILIKE %s OR f.location ILIKE %s)'
         params.extend([f'%{search}%', f'%{search}%'])
 
-    total_lost = conn.execute(count_lq, params).fetchone()[0]
-    total_found = conn.execute(count_fq, params).fetchone()[0]
-    lost_items = conn.execute(lq_base + ' ORDER BY l.created_at DESC LIMIT ? OFFSET ?', params + [PAGE_SIZE, offset]).fetchall()
-    found_items = conn.execute(fq_base + ' ORDER BY f.created_at DESC LIMIT ? OFFSET ?', params + [PAGE_SIZE, offset]).fetchall()
+    cur = db_execute(conn, count_lq, params)
+    total_lost = cur.fetchone()['count']
+    cur = db_execute(conn, count_fq, params)
+    total_found = cur.fetchone()['count']
+    cur = db_execute(conn, lq_base + ' ORDER BY l.created_at DESC LIMIT %s OFFSET %s', params + [PAGE_SIZE, offset])
+    lost_items = cur.fetchall()
+    cur = db_execute(conn, fq_base + ' ORDER BY f.created_at DESC LIMIT %s OFFSET %s', params + [PAGE_SIZE, offset])
+    found_items = cur.fetchall()
     conn.close()
 
     import math
@@ -392,20 +450,22 @@ def browse():
 
 # ─── Post Lost ────────────────────────────────────────────────────────────────
 
-@app.route('/post-lost', methods=['GET','POST'])
+@app.route('/post-lost', methods=['GET', 'POST'])
 @login_required
 def post_lost():
     locations = get_all_locations()
     if request.method == 'POST':
-        location = request.form.get('location','').strip()
-        custom_loc = request.form.get('custom_location','').strip()
+        location = request.form.get('location', '').strip()
+        custom_loc = request.form.get('custom_location', '').strip()
         if location == '__custom__' and custom_loc:
             location = custom_loc
             conn = get_db()
             try:
-                conn.execute('INSERT OR IGNORE INTO custom_locations (location, added_by) VALUES (?,?)', (location, session['user_id']))
+                db_execute(conn, 'INSERT INTO custom_locations (location, added_by) VALUES (%s,%s) ON CONFLICT (location) DO NOTHING',
+                    (location, session['user_id']))
                 conn.commit()
-            except: pass
+            except Exception as e:
+                print(f"Custom location error: {e}")
             conn.close()
         image_url = None
         if 'image' in request.files:
@@ -413,52 +473,56 @@ def post_lost():
             if f and f.filename and allowed_file(f.filename):
                 image_url = upload_image(f)
         conn = get_db()
-        conn.execute('INSERT INTO lost_items (user_id,item_name,category,color,location,exact_location,image_path,date_lost,description) VALUES (?,?,?,?,?,?,?,?,?)',
-            (session['user_id'], request.form.get('item_name','').strip(), request.form.get('category','').strip(),
-             request.form.get('color','').strip(), location,
-             request.form.get('exact_location','').strip() or None,
+        db_execute(conn,
+            'INSERT INTO lost_items (user_id,item_name,category,color,location,exact_location,image_path,date_lost,description) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+            (session['user_id'], request.form.get('item_name', '').strip(), request.form.get('category', '').strip(),
+             request.form.get('color', '').strip(), location,
+             request.form.get('exact_location', '').strip() or None,
              image_url,
-             request.form.get('date_lost','').strip(), request.form.get('description','').strip()))
-        conn.commit(); conn.close()
+             request.form.get('date_lost', '').strip(), request.form.get('description', '').strip()))
+        conn.commit()
+        conn.close()
         flash('Lost item posted successfully!', 'success')
         return redirect(url_for('dashboard'))
     return render_template('post_lost.html', categories=CATEGORIES, locations=locations)
 
 # ─── Post Found ───────────────────────────────────────────────────────────────
 
-@app.route('/post-found', methods=['GET','POST'])
+@app.route('/post-found', methods=['GET', 'POST'])
 @login_required
 def post_found():
     locations = get_all_locations()
     if request.method == 'POST':
-        location = request.form.get('location','').strip()
-        custom_loc = request.form.get('custom_location','').strip()
+        location = request.form.get('location', '').strip()
+        custom_loc = request.form.get('custom_location', '').strip()
         if location == '__custom__' and custom_loc:
             location = custom_loc
             conn = get_db()
             try:
-                conn.execute('INSERT OR IGNORE INTO custom_locations (location, added_by) VALUES (?,?)', (location, session['user_id']))
+                db_execute(conn, 'INSERT INTO custom_locations (location, added_by) VALUES (%s,%s) ON CONFLICT (location) DO NOTHING',
+                    (location, session['user_id']))
                 conn.commit()
             except Exception as e:
                 print(f"DB error saving custom location: {e}")
             conn.close()
         conn = get_db()
-        category = request.form.get('category','').strip()
-        brief_desc = request.form.get('brief_description','').strip()
-        date_found = request.form.get('date_found','').strip()
-        conn.execute('INSERT INTO found_items (user_id,brief_description,category,location,exact_location,date_found) VALUES (?,?,?,?,?,?)',
+        category = request.form.get('category', '').strip()
+        brief_desc = request.form.get('brief_description', '').strip()
+        date_found = request.form.get('date_found', '').strip()
+        db_execute(conn,
+            'INSERT INTO found_items (user_id,brief_description,category,location,exact_location,date_found) VALUES (%s,%s,%s,%s,%s,%s)',
             (session['user_id'], brief_desc, category, location,
-             request.form.get('exact_location','').strip() or None,
+             request.form.get('exact_location', '').strip() or None,
              date_found))
         conn.commit()
         # Notify users who have open lost items in the same category
-        matched = conn.execute(
-            'SELECT l.user_id, u.email, u.full_name FROM lost_items l JOIN users u ON l.user_id=u.id WHERE l.category=? AND l.status="open" AND l.user_id!=?',
+        cur = db_execute(conn,
+            'SELECT l.user_id, u.email, u.full_name FROM lost_items l JOIN users u ON l.user_id=u.id WHERE l.category=%s AND l.status=\'open\' AND l.user_id!=%s',
             (category, session['user_id'])
-        ).fetchall()
+        )
+        matched = cur.fetchall()
         conn.close()
         for m in matched:
-            msg = f'A found item in category <strong>{category}</strong> was just posted — it might be yours!'
             link = url_for('browse', category=category, _external=True)
             create_notification(m['user_id'], 'found_match', f'A found {category} item was posted — could be yours!', url_for('browse', category=category))
             send_email(m['email'], f'[PEC Lost & Found] A found {category} item was posted',
@@ -473,30 +537,43 @@ def post_found():
 
 # ─── Claim ────────────────────────────────────────────────────────────────────
 
-@app.route('/claim/<int:found_item_id>', methods=['GET','POST'])
+@app.route('/claim/<int:found_item_id>', methods=['GET', 'POST'])
 @login_required
 def claim_item(found_item_id):
     conn = get_db()
-    found_item = conn.execute(
-        'SELECT f.*, u.full_name, u.department, u.contact, u.hostel_name, u.hosteler_status FROM found_items f JOIN users u ON f.user_id = u.id WHERE f.id = ?',
-        (found_item_id,)).fetchone()
+    cur = db_execute(conn,
+        'SELECT f.*, u.full_name, u.department, u.contact, u.hostel_name, u.hosteler_status FROM found_items f JOIN users u ON f.user_id = u.id WHERE f.id = %s',
+        (found_item_id,))
+    found_item = cur.fetchone()
     if not found_item:
-        conn.close(); flash('Item not found.', 'error'); return redirect(url_for('browse'))
+        conn.close()
+        flash('Item not found.', 'error')
+        return redirect(url_for('browse'))
     if found_item['user_id'] == session['user_id']:
-        conn.close(); flash('You cannot claim your own post.', 'error'); return redirect(url_for('browse'))
-    existing_claim = conn.execute('SELECT id FROM claims WHERE found_item_id = ? AND claimant_user_id = ?', (found_item_id, session['user_id'])).fetchone()
+        conn.close()
+        flash('You cannot claim your own post.', 'error')
+        return redirect(url_for('browse'))
+    cur = db_execute(conn, 'SELECT id FROM claims WHERE found_item_id = %s AND claimant_user_id = %s',
+        (found_item_id, session['user_id']))
+    existing_claim = cur.fetchone()
     if request.method == 'POST':
         if existing_claim:
-            flash('Already submitted a claim.', 'error'); conn.close(); return redirect(url_for('browse'))
-        hidden_details = request.form.get('hidden_details','').strip()
+            flash('Already submitted a claim.', 'error')
+            conn.close()
+            return redirect(url_for('browse'))
+        hidden_details = request.form.get('hidden_details', '').strip()
         if len(hidden_details) < 20:
-            flash('Please provide more detail (min 20 chars).', 'error'); conn.close()
+            flash('Please provide more detail (min 20 chars).', 'error')
+            conn.close()
             return render_template('claim.html', found_item=found_item, existing_claim=None)
-        conn.execute('INSERT INTO claims (found_item_id,claimant_user_id,hidden_details) VALUES (?,?,?)', (found_item_id, session['user_id'], hidden_details))
+        db_execute(conn, 'INSERT INTO claims (found_item_id,claimant_user_id,hidden_details) VALUES (%s,%s,%s)',
+            (found_item_id, session['user_id'], hidden_details))
         conn.commit()
         # Notify the finder
-        finder = conn.execute('SELECT u.email, u.full_name FROM users u WHERE u.id=?', (found_item['user_id'],)).fetchone()
-        claimant = conn.execute('SELECT full_name FROM users WHERE id=?', (session['user_id'],)).fetchone()
+        cur = db_execute(conn, 'SELECT u.email, u.full_name FROM users u WHERE u.id=%s', (found_item['user_id'],))
+        finder = cur.fetchone()
+        cur = db_execute(conn, 'SELECT full_name FROM users WHERE id=%s', (session['user_id'],))
+        claimant = cur.fetchone()
         conn.close()
         notif_msg = f'{claimant["full_name"]} submitted a claim on your found item: "{found_item["brief_description"]}"'
         create_notification(found_item['user_id'], 'claim_received', notif_msg, url_for('dashboard'))
@@ -521,17 +598,26 @@ def resolve_claim(claim_id, action):
         flash('Invalid action.', 'error')
         return redirect(url_for('dashboard'))
     conn = get_db()
-    claim = conn.execute('SELECT c.*, f.user_id as finder_id FROM claims c JOIN found_items f ON c.found_item_id = f.id WHERE c.id = ?', (claim_id,)).fetchone()
+    cur = db_execute(conn,
+        'SELECT c.*, f.user_id as finder_id FROM claims c JOIN found_items f ON c.found_item_id = f.id WHERE c.id = %s',
+        (claim_id,))
+    claim = cur.fetchone()
     if not claim or claim['finder_id'] != session['user_id']:
-        conn.close(); flash('Unauthorized.', 'error'); return redirect(url_for('dashboard'))
-    claimant = conn.execute('SELECT u.email, u.full_name FROM users u WHERE u.id=?', (claim['claimant_user_id'],)).fetchone()
-    found_item_row = conn.execute('SELECT brief_description FROM found_items WHERE id=?', (claim['found_item_id'],)).fetchone()
+        conn.close()
+        flash('Unauthorized.', 'error')
+        return redirect(url_for('dashboard'))
+    cur = db_execute(conn, 'SELECT u.email, u.full_name FROM users u WHERE u.id=%s', (claim['claimant_user_id'],))
+    claimant = cur.fetchone()
+    cur = db_execute(conn, 'SELECT brief_description FROM found_items WHERE id=%s', (claim['found_item_id'],))
+    found_item_row = cur.fetchone()
     item_desc = found_item_row['brief_description'] if found_item_row else 'your item'
     if action == 'approve':
-        conn.execute('UPDATE claims SET status = "approved" WHERE id = ?', (claim_id,))
-        conn.execute('UPDATE found_items SET status = "resolved" WHERE id = ?', (claim['found_item_id'],))
-        conn.execute('UPDATE claims SET status = "rejected" WHERE found_item_id = ? AND id != ?', (claim['found_item_id'], claim_id))
-        conn.commit(); conn.close()
+        db_execute(conn, 'UPDATE claims SET status = \'approved\' WHERE id = %s', (claim_id,))
+        db_execute(conn, 'UPDATE found_items SET status = \'resolved\' WHERE id = %s', (claim['found_item_id'],))
+        db_execute(conn, 'UPDATE claims SET status = \'rejected\' WHERE found_item_id = %s AND id != %s',
+            (claim['found_item_id'], claim_id))
+        conn.commit()
+        conn.close()
         create_notification(claim['claimant_user_id'], 'claim_approved',
             f'Your claim on "{item_desc}" was approved! Contact the finder to collect your item.', url_for('dashboard'))
         send_email(claimant['email'], '[PEC Lost & Found] Your claim was approved! 🎉',
@@ -542,8 +628,9 @@ def resolve_claim(claim_id, action):
             ], url_for('dashboard', _external=True), 'Go to Dashboard'))
         flash('Claim approved! Item marked as returned.', 'success')
     else:
-        conn.execute('UPDATE claims SET status = "rejected" WHERE id = ?', (claim_id,))
-        conn.commit(); conn.close()
+        db_execute(conn, 'UPDATE claims SET status = \'rejected\' WHERE id = %s', (claim_id,))
+        conn.commit()
+        conn.close()
         create_notification(claim['claimant_user_id'], 'claim_rejected',
             f'Your claim on "{item_desc}" was rejected. You can still browse other found items.', url_for('browse'))
         send_email(claimant['email'], '[PEC Lost & Found] Your claim was not approved',
@@ -561,9 +648,11 @@ def resolve_claim(claim_id, action):
 @login_required
 def delete_lost(item_id):
     conn = get_db()
-    if conn.execute('SELECT id FROM lost_items WHERE id = ? AND user_id = ?', (item_id, session['user_id'])).fetchone():
-        conn.execute('DELETE FROM lost_items WHERE id = ?', (item_id,))
-        conn.commit(); flash('Post deleted.', 'info')
+    cur = db_execute(conn, 'SELECT id FROM lost_items WHERE id = %s AND user_id = %s', (item_id, session['user_id']))
+    if cur.fetchone():
+        db_execute(conn, 'DELETE FROM lost_items WHERE id = %s', (item_id,))
+        conn.commit()
+        flash('Post deleted.', 'info')
     conn.close()
     return redirect(url_for('dashboard'))
 
@@ -571,10 +660,12 @@ def delete_lost(item_id):
 @login_required
 def delete_found(item_id):
     conn = get_db()
-    if conn.execute('SELECT id FROM found_items WHERE id = ? AND user_id = ?', (item_id, session['user_id'])).fetchone():
-        conn.execute('DELETE FROM claims WHERE found_item_id = ?', (item_id,))
-        conn.execute('DELETE FROM found_items WHERE id = ?', (item_id,))
-        conn.commit(); flash('Post deleted.', 'info')
+    cur = db_execute(conn, 'SELECT id FROM found_items WHERE id = %s AND user_id = %s', (item_id, session['user_id']))
+    if cur.fetchone():
+        db_execute(conn, 'DELETE FROM claims WHERE found_item_id = %s', (item_id,))
+        db_execute(conn, 'DELETE FROM found_items WHERE id = %s', (item_id,))
+        conn.commit()
+        flash('Post deleted.', 'info')
     conn.close()
     return redirect(url_for('dashboard'))
 
@@ -586,12 +677,14 @@ def profile():
     user = get_current_user()
     conn = get_db()
     uid = session['user_id']
-    stats = {
-        'lost_posted': conn.execute('SELECT COUNT(*) FROM lost_items WHERE user_id = ?', (uid,)).fetchone()[0],
-        'found_posted': conn.execute('SELECT COUNT(*) FROM found_items WHERE user_id = ?', (uid,)).fetchone()[0],
-        'resolved': conn.execute('SELECT COUNT(*) FROM found_items WHERE user_id = ? AND status = "resolved"', (uid,)).fetchone()[0],
-    }
+    cur = db_execute(conn, 'SELECT COUNT(*) FROM lost_items WHERE user_id = %s', (uid,))
+    lost_posted = cur.fetchone()['count']
+    cur = db_execute(conn, 'SELECT COUNT(*) FROM found_items WHERE user_id = %s', (uid,))
+    found_posted = cur.fetchone()['count']
+    cur = db_execute(conn, 'SELECT COUNT(*) FROM found_items WHERE user_id = %s AND status = \'resolved\'', (uid,))
+    resolved = cur.fetchone()['count']
     conn.close()
+    stats = {'lost_posted': lost_posted, 'found_posted': found_posted, 'resolved': resolved}
     return render_template('profile.html', user=user, stats=stats)
 
 # ─── Notifications API ───────────────────────────────────────────────────────
@@ -600,21 +693,21 @@ def profile():
 @login_required
 def get_notifications():
     conn = get_db()
-    notifs = conn.execute(
-        'SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 20',
-        (session['user_id'],)
-    ).fetchall()
-    unread = conn.execute(
-        'SELECT COUNT(*) FROM notifications WHERE user_id=? AND is_read=0',
-        (session['user_id'],)
-    ).fetchone()[0]
+    cur = db_execute(conn,
+        'SELECT * FROM notifications WHERE user_id=%s ORDER BY created_at DESC LIMIT 20',
+        (session['user_id'],))
+    notifs = cur.fetchall()
+    cur = db_execute(conn,
+        'SELECT COUNT(*) FROM notifications WHERE user_id=%s AND is_read=0',
+        (session['user_id'],))
+    unread = cur.fetchone()['count']
     conn.close()
     return jsonify({
         'unread': unread,
         'notifications': [{
             'id': n['id'], 'type': n['type'], 'message': n['message'],
             'link': n['link'], 'is_read': n['is_read'],
-            'created_at': n['created_at']
+            'created_at': str(n['created_at'])
         } for n in notifs]
     })
 
@@ -622,16 +715,19 @@ def get_notifications():
 @login_required
 def mark_all_read():
     conn = get_db()
-    conn.execute('UPDATE notifications SET is_read=1 WHERE user_id=?', (session['user_id'],))
-    conn.commit(); conn.close()
+    db_execute(conn, 'UPDATE notifications SET is_read=1 WHERE user_id=%s', (session['user_id'],))
+    conn.commit()
+    conn.close()
     return jsonify({'ok': True})
 
 @app.route('/notifications/<int:notif_id>/read', methods=['POST'])
 @login_required
 def mark_one_read(notif_id):
     conn = get_db()
-    conn.execute('UPDATE notifications SET is_read=1 WHERE id=? AND user_id=?', (notif_id, session['user_id']))
-    conn.commit(); conn.close()
+    db_execute(conn, 'UPDATE notifications SET is_read=1 WHERE id=%s AND user_id=%s',
+        (notif_id, session['user_id']))
+    conn.commit()
+    conn.close()
     return jsonify({'ok': True})
 
 @app.route('/google895b8fa8bed373f0.html')
