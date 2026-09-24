@@ -60,7 +60,6 @@
         <div class="finder-info" style="background:#fff7ed;border-color:#fed7aa;">
           <strong>📋 Posted By</strong>
           <div class="finder-info-row">👤 {{ item.full_name }}</div>
-          <div class="finder-info-row">📞 {{ item.contact }}</div>
         </div>
         {% else %}
         <div class="finder-info" style="text-align:center;">
@@ -118,7 +117,7 @@
         <div class="finder-info">
           <strong>📋 Finder Details</strong>
           <div class="finder-info-row">👤 {{ item.full_name }}</div>
-          <div class="finder-info-row">📞 {{ item.contact }}</div>
+          <div class="finder-info-row" style="font-size:.75rem;color:var(--text-3);font-style:italic;">📞 Contact shared after claim approved</div>
         </div>
         {% else %}
         <div class="finder-info" style="text-align:center;">

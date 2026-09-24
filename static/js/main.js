@@ -75,23 +75,51 @@ function initBrowseTabs() {
   });
 }
 
-// ─── Notifications ────────────────────────────────────────────
-let notifPanelOpen = false;
+// ─── Notification Drawer ──────────────────────────────────────
+let notifDrawerOpen = false;
 
-function toggleNotifPanel() {
-  const panel = document.getElementById('notifPanel');
-  if (!panel) return;
-  notifPanelOpen = !notifPanelOpen;
-  panel.style.display = notifPanelOpen ? 'block' : 'none';
+function toggleNotifDrawer() {
+  const drawer = document.getElementById('notifDrawer');
+  const overlay = document.getElementById('notifOverlay');
+  if (!drawer) return;
+  notifDrawerOpen = !notifDrawerOpen;
+  if (notifDrawerOpen) {
+    drawer.classList.add('open');
+    if (overlay) overlay.classList.add('open');
+    fetchNotifications();
+  } else {
+    drawer.classList.remove('open');
+    if (overlay) overlay.classList.remove('open');
+  }
 }
 
-// Close panel when clicking outside
+// ─── Profile Popup ────────────────────────────────────────────
+let profilePopupOpen = false;
+
+function toggleProfilePopup() {
+  const popup = document.getElementById('profilePopup');
+  if (!popup) return;
+  profilePopupOpen = !profilePopupOpen;
+  if (profilePopupOpen) {
+    popup.style.display = 'block';
+    requestAnimationFrame(() => popup.classList.add('open'));
+  } else {
+    popup.classList.remove('open');
+    setTimeout(() => { popup.style.display = 'none'; }, 200);
+  }
+}
+
+// Close popups when clicking outside
 document.addEventListener('click', e => {
-  const wrap = document.getElementById('notifWrap');
-  if (wrap && !wrap.contains(e.target) && notifPanelOpen) {
-    notifPanelOpen = false;
-    const panel = document.getElementById('notifPanel');
-    if (panel) panel.style.display = 'none';
+  // Close profile popup
+  const sidebarUser = document.getElementById('sidebarUser');
+  const profilePopup = document.getElementById('profilePopup');
+  if (profilePopupOpen && profilePopup && sidebarUser) {
+    if (!sidebarUser.contains(e.target) && !profilePopup.contains(e.target)) {
+      profilePopupOpen = false;
+      profilePopup.classList.remove('open');
+      setTimeout(() => { profilePopup.style.display = 'none'; }, 200);
+    }
   }
 });
 
@@ -142,8 +170,16 @@ function renderNotifications(data) {
 
 function handleNotifClick(id, link) {
   fetch(`/notifications/${id}/read`, { method: 'POST' });
-  if (link) window.location.href = link;
-  else { notifPanelOpen = false; document.getElementById('notifPanel').style.display = 'none'; }
+  if (link) {
+    window.location.href = link;
+  } else {
+    // Close the notification drawer
+    notifDrawerOpen = false;
+    const drawer = document.getElementById('notifDrawer');
+    const overlay = document.getElementById('notifOverlay');
+    if (drawer) drawer.classList.remove('open');
+    if (overlay) overlay.classList.remove('open');
+  }
   fetchNotifications();
 }
 
@@ -154,9 +190,12 @@ function markAllRead() {
 
 function fetchNotifications() {
   fetch('/notifications')
-    .then(r => r.ok ? r.json() : null)
+    .then(r => {
+      if (!r.ok) { console.warn('Notifications fetch failed:', r.status); return null; }
+      return r.json();
+    })
     .then(data => { if (data) renderNotifications(data); })
-    .catch(() => {});
+    .catch(err => console.warn('Notifications error:', err));
 }
 
 function initNotifications() {

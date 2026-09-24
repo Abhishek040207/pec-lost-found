@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Feedback — PEC Lost & Found{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Share Your Feedback</h1>
+  <p>Tell us what you think — it goes straight to the developer</p>
+</div>
+
+<div class="form-card" style="max-width:520px;">
+  <form method="POST" action="{{ url_for('feedback') }}" id="feedbackForm">
+    <div class="form-group">
+      <label>How would you rate the app?</label>
+      <div class="star-rating" id="starRating">
+        {% for i in range(1, 6) %}
+        <button type="button" class="star-btn" data-value="{{ i }}" aria-label="{{ i }} star">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+          </svg>
+        </button>
+        {% endfor %}
+      </div>
+      <input type="hidden" name="rating" id="ratingInput" value="">
+    </div>
+
+    <div class="form-group">
+      <label for="comment">Comments <span style="color:var(--text-3);font-weight:400;">(optional)</span></label>
+      <textarea id="comment" name="comment" rows="4" placeholder="What worked well? What could be better?"></textarea>
+    </div>
+
+    <button type="submit" class="btn btn-primary btn-full btn-lg">Submit Feedback</button>
+  </form>
+</div>
+
+<style>
+.star-rating{display:flex;gap:6px;margin-top:6px;}
+.star-btn{background:none;border:none;cursor:pointer;color:var(--text-3);padding:2px;transition:color .15s,transform .15s;}
+.star-btn:hover{transform:scale(1.1);}
+.star-btn.active,.star-btn.hovered{color:#f59e0b;}
+.star-btn.active svg,.star-btn.hovered svg{fill:currentColor;}
+</style>
+
+<script>
+(function(){
+  var stars = document.querySelectorAll('#starRating .star-btn');
+  var input = document.getElementById('ratingInput');
+  var selected = 0;
+
+  function paint(upto, cls){
+    stars.forEach(function(btn){
+      var v = parseInt(btn.dataset.value, 10);
+      btn.classList.toggle(cls, v <= upto);
+    });
+  }
+
+  stars.forEach(function(btn){
+    btn.addEventListener('mouseenter', function(){
+      paint(parseInt(btn.dataset.value, 10), 'hovered');
+    });
+    btn.addEventListener('mouseleave', function(){
+      stars.forEach(function(b){ b.classList.remove('hovered'); });
+    });
+    btn.addEventListener('click', function(){
+      selected = parseInt(btn.dataset.value, 10);
+      input.value = selected;
+      paint(selected, 'active');
+    });
+  });
+
+  document.getElementById('feedbackForm').addEventListener('submit', function(e){
+    if (!selected) {
+      e.preventDefault();
+      alert('Please select a star rating before submitting.');
+    }
+  });
+})();
+</script>
+{% endblock %}

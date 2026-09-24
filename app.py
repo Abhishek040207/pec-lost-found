@@ -6,6 +6,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from functools import wraps
 from authlib.integrations.flask_client import OAuth
+from datetime import timedelta
 
 try:
     from dotenv import load_dotenv
@@ -16,6 +17,7 @@ except ImportError:
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'pec_lost_found_secret_2024')
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 
 # ─── Cloudinary ───────────────────────────────────────────────────────────────
@@ -149,6 +151,16 @@ def init_db():
         )
     ''')
 
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS reviews (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            rating INTEGER NOT NULL,
+            comment TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
     conn.commit()
     cur.close()
     conn.close()
@@ -180,22 +192,32 @@ def create_notification(user_id, notif_type, message, link=None):
         print(f"Notification DB error: {e}")
 
 def send_email(to_email, subject, body):
-    """Send an email asynchronously via Gmail SMTP."""
-    if not MAIL_USERNAME or not MAIL_PASSWORD:
+    """Send an email asynchronously via Gmail SMTP (port 587 + STARTTLS)."""
+    mail_user = (MAIL_USERNAME or '').strip()
+    mail_pass = (MAIL_PASSWORD or '').replace(' ', '')
+    if not mail_user or not mail_pass:
+        print("Email skipped: MAIL_USERNAME or MAIL_PASSWORD not set.")
         return
     def _send():
         try:
             msg = MIMEMultipart('alternative')
             msg['Subject'] = subject
-            msg['From'] = f'PEC Lost & Found <{MAIL_USERNAME}>'
+            msg['From'] = f'PEC Lost & Found <{mail_user}>'
             msg['To'] = to_email
             msg.attach(MIMEText(body, 'html'))
-            with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-                smtp.login(MAIL_USERNAME, MAIL_PASSWORD)
-                smtp.sendmail(MAIL_USERNAME, to_email, msg.as_string())
-            print(f"Email sent to {to_email}")
+            with smtplib.SMTP('smtp.gmail.com', 587) as smtp:
+                smtp.ehlo()
+                smtp.starttls()
+                smtp.ehlo()
+                smtp.login(mail_user, mail_pass)
+                smtp.sendmail(mail_user, to_email, msg.as_string())
+            print(f"✅ Email sent to {to_email}")
+        except smtplib.SMTPAuthenticationError as e:
+            print(f"❌ Email auth error (check App Password): {e}")
+        except smtplib.SMTPException as e:
+            print(f"❌ SMTP error: {e}")
         except Exception as e:
-            print(f"Email error: {e}")
+            print(f"❌ Email error: {e}")
     threading.Thread(target=_send, daemon=True).start()
 
 def email_body(heading, lines, action_url=None, action_label=None):
@@ -232,6 +254,13 @@ def upload_image(file):
     except Exception as e:
         print(f"Cloudinary upload error: {e}")
         return None
+
+# ─── Ensure sessions persist across tab/browser close ────────────────────────
+
+@app.before_request
+def make_session_permanent():
+    """Mark every session as permanent so the 30-day cookie is always set."""
+    session.permanent = True
 
 def login_required(f):
     @wraps(f)
@@ -328,6 +357,7 @@ def google_callback():
         user = cur.fetchone()
         is_new = True
     conn.close()
+    session.permanent = True
     session['user_id'] = user['id']
     session['user_name'] = user['full_name']
     next_url = session.pop('post_login_redirect', None) or url_for('dashboard')
@@ -694,48 +724,113 @@ def profile():
     stats = {'lost_posted': lost_posted, 'found_posted': found_posted, 'resolved': resolved}
     return render_template('profile.html', user=user, stats=stats)
 
+@app.route('/profile/update', methods=['POST'])
+@login_required
+def update_profile():
+    """Update the logged-in user's full name and contact/mobile number."""
+    full_name = request.form.get('full_name', '').strip()
+    contact = request.form.get('contact', '').strip()
+    if not full_name or len(full_name) < 2:
+        flash('Please enter a valid name.', 'error')
+        return redirect(url_for('profile'))
+    if not contact or not contact.replace('+', '').replace('-', '').replace(' ', '').isdigit() or len(contact) < 7:
+        flash('Please enter a valid phone number.', 'error')
+        return redirect(url_for('profile'))
+    conn = get_db()
+    db_execute(conn, 'UPDATE users SET full_name = %s, contact = %s WHERE id = %s',
+        (full_name, contact, session['user_id']))
+    conn.commit()
+    conn.close()
+    session['user_name'] = full_name
+    flash('Profile updated successfully!', 'success')
+    return redirect(url_for('profile'))
+
 # ─── Notifications API ───────────────────────────────────────────────────────
 
 @app.route('/notifications')
-@login_required
 def get_notifications():
-    conn = get_db()
-    cur = db_execute(conn,
-        'SELECT * FROM notifications WHERE user_id=%s ORDER BY created_at DESC LIMIT 20',
-        (session['user_id'],))
-    notifs = cur.fetchall()
-    cur = db_execute(conn,
-        'SELECT COUNT(*) FROM notifications WHERE user_id=%s AND is_read=0',
-        (session['user_id'],))
-    unread = cur.fetchone()['count']
-    conn.close()
-    return jsonify({
-        'unread': unread,
-        'notifications': [{
-            'id': n['id'], 'type': n['type'], 'message': n['message'],
-            'link': n['link'], 'is_read': n['is_read'],
-            'created_at': str(n['created_at'])
-        } for n in notifs]
-    })
+    if 'user_id' not in session:
+        return jsonify({'error': 'not logged in', 'unread': 0, 'notifications': []}), 401
+    try:
+        conn = get_db()
+        cur = db_execute(conn,
+            'SELECT * FROM notifications WHERE user_id=%s ORDER BY created_at DESC LIMIT 20',
+            (session['user_id'],))
+        notifs = cur.fetchall()
+        cur = db_execute(conn,
+            'SELECT COUNT(*) FROM notifications WHERE user_id=%s AND is_read=FALSE',
+            (session['user_id'],))
+        unread = cur.fetchone()['count']
+        conn.close()
+        return jsonify({
+            'unread': int(unread),
+            'notifications': [{
+                'id': n['id'], 'type': n['type'], 'message': n['message'],
+                'link': n['link'], 'is_read': bool(n['is_read']),
+                'created_at': str(n['created_at'])
+            } for n in notifs]
+        })
+    except Exception as e:
+        print(f'Notification fetch error: {e}')
+        return jsonify({'error': str(e), 'unread': 0, 'notifications': []}), 500
 
 @app.route('/notifications/mark-read', methods=['POST'])
-@login_required
 def mark_all_read():
-    conn = get_db()
-    db_execute(conn, 'UPDATE notifications SET is_read=1 WHERE user_id=%s', (session['user_id'],))
-    conn.commit()
-    conn.close()
+    if 'user_id' not in session:
+        return jsonify({'ok': False}), 401
+    try:
+        conn = get_db()
+        db_execute(conn, 'UPDATE notifications SET is_read=TRUE WHERE user_id=%s', (session['user_id'],))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'Mark-all-read error: {e}')
     return jsonify({'ok': True})
 
 @app.route('/notifications/<int:notif_id>/read', methods=['POST'])
-@login_required
 def mark_one_read(notif_id):
-    conn = get_db()
-    db_execute(conn, 'UPDATE notifications SET is_read=1 WHERE id=%s AND user_id=%s',
-        (notif_id, session['user_id']))
-    conn.commit()
-    conn.close()
+    if 'user_id' not in session:
+        return jsonify({'ok': False}), 401
+    try:
+        conn = get_db()
+        db_execute(conn, 'UPDATE notifications SET is_read=TRUE WHERE id=%s AND user_id=%s',
+            (notif_id, session['user_id']))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'Mark-one-read error: {e}')
     return jsonify({'ok': True})
+
+# ─── Feedback / Reviews ───────────────────────────────────────────────────────
+
+REVIEWS_EMAIL = os.environ.get('REVIEWS_EMAIL', 'peclostandfound@gmail.com')
+
+@app.route('/feedback', methods=['GET', 'POST'])
+@login_required
+def feedback():
+    user = get_current_user()
+    if request.method == 'POST':
+        rating = request.form.get('rating', '').strip()
+        comment = request.form.get('comment', '').strip()
+        if not rating.isdigit() or not (1 <= int(rating) <= 5):
+            flash('Please select a star rating.', 'error')
+            return render_template('feedback.html')
+        rating = int(rating)
+        conn = get_db()
+        db_execute(conn, 'INSERT INTO reviews (user_id, rating, comment) VALUES (%s,%s,%s)',
+            (session['user_id'], rating, comment or None))
+        conn.commit()
+        conn.close()
+        stars = '⭐' * rating + '☆' * (5 - rating)
+        send_email(REVIEWS_EMAIL, f'[PEC Lost & Found] New review — {stars}',
+            email_body('New App Review', [
+                f'From: <strong>{user["full_name"]}</strong> ({user["email"]})',
+                f'Rating: {stars} ({rating}/5)',
+                f'Comment: {comment or "(no comment left)"}',
+            ]))
+        flash('Thanks for your feedback! 🙏', 'success')
+        return redirect(url_for('dashboard'))
+    return render_template('feedback.html')
 
 @app.route('/google895b8fa8bed373f0.html')
 def google_verify():

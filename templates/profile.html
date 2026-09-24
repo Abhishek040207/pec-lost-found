@@ -25,12 +25,29 @@
 </div>
 
 <div class="section-title" style="margin-bottom:12px;">Contact Information</div>
-<div class="info-grid">
+<div class="info-grid" id="infoDisplay">
   <div class="info-item"><div class="info-label">Full Name</div><div class="info-value">{{ user.full_name }}</div></div>
-  <div class="info-item"><div class="info-label">PEC Email</div><div class="info-value">{{ user.email }}</div></div>
-  <div class="info-item"><div class="info-label">Contact</div><div class="info-value">{{ user.contact }}</div></div>
-  <div class="info-item"><div class="info-label">Joined</div><div class="info-value">{{ user.created_at | datefmt }}</div></div>
+  <div class="info-item"><div class="info-label">PEC Email</div><div class="info-value">{{ user.email }} <span style="font-size:.7rem;color:var(--text-3);">(locked to Google account)</span></div></div>
+  <div class="info-item"><div class="info-label">Mobile Number</div><div class="info-value">{{ user.contact or 'Not set' }}</div></div>
 </div>
+<button onclick="toggleProfileEdit()" class="btn btn-outline btn-sm" id="editProfileBtn" style="margin-top:10px;">✏️ Edit Full Name / Mobile</button>
+
+<form id="profileEditForm" style="display:none;margin-top:14px;" method="POST" action="{{ url_for('update_profile') }}">
+  <div class="form-row">
+    <div class="form-group">
+      <label for="edit_full_name">Full Name</label>
+      <input type="text" id="edit_full_name" name="full_name" value="{{ user.full_name }}" required>
+    </div>
+    <div class="form-group">
+      <label for="edit_contact">Mobile Number</label>
+      <input type="tel" id="edit_contact" name="contact" value="{{ user.contact }}" placeholder="e.g. +91 9876543210" required>
+    </div>
+  </div>
+  <div style="display:flex;gap:10px;">
+    <button type="submit" class="btn btn-primary btn-sm">Save Changes</button>
+    <button type="button" onclick="toggleProfileEdit()" class="btn btn-outline btn-sm">Cancel</button>
+  </div>
+</form>
 
 <hr class="divider">
 
@@ -54,4 +71,17 @@
     </form>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function toggleProfileEdit() {
+  const form = document.getElementById('profileEditForm');
+  const btn = document.getElementById('editProfileBtn');
+  const isHidden = form.style.display === 'none';
+  form.style.display = isHidden ? 'block' : 'none';
+  btn.style.display = isHidden ? 'none' : 'inline-flex';
+  if (isHidden) form.querySelector('input').focus();
+}
+</script>
 {% endblock %}
