@@ -408,6 +408,8 @@ def delete_account():
     for f in founds:
         db_execute(conn, 'DELETE FROM claims WHERE found_item_id = %s', (f['id'],))
     db_execute(conn, 'DELETE FROM found_items WHERE user_id = %s', (uid,))
+    db_execute(conn, 'DELETE FROM notifications WHERE user_id = %s', (uid,))
+    db_execute(conn, 'DELETE FROM reviews WHERE user_id = %s', (uid,))
     db_execute(conn, 'DELETE FROM users WHERE id = %s', (uid,))
     conn.commit()
     conn.close()
@@ -758,7 +760,7 @@ def get_notifications():
             (session['user_id'],))
         notifs = cur.fetchall()
         cur = db_execute(conn,
-            'SELECT COUNT(*) FROM notifications WHERE user_id=%s AND is_read=FALSE',
+            'SELECT COUNT(*) FROM notifications WHERE user_id=%s AND is_read=0',
             (session['user_id'],))
         unread = cur.fetchone()['count']
         conn.close()
@@ -780,7 +782,7 @@ def mark_all_read():
         return jsonify({'ok': False}), 401
     try:
         conn = get_db()
-        db_execute(conn, 'UPDATE notifications SET is_read=TRUE WHERE user_id=%s', (session['user_id'],))
+        db_execute(conn, 'UPDATE notifications SET is_read=1 WHERE user_id=%s', (session['user_id'],))
         conn.commit()
         conn.close()
     except Exception as e:
@@ -793,7 +795,7 @@ def mark_one_read(notif_id):
         return jsonify({'ok': False}), 401
     try:
         conn = get_db()
-        db_execute(conn, 'UPDATE notifications SET is_read=TRUE WHERE id=%s AND user_id=%s',
+        db_execute(conn, 'UPDATE notifications SET is_read=1 WHERE id=%s AND user_id=%s',
             (notif_id, session['user_id']))
         conn.commit()
         conn.close()
