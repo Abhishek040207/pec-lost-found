@@ -1,10 +1,17 @@
 """
-Quick email test script — run this directly to diagnose Gmail SMTP issues.
-Usage: python test_email.py <recipient@email.com>
+Email diagnostic script — run this directly to check email delivery is working
+before (or after) deploying, without needing to click through the whole app.
+
+Usage:  python test_email.py <recipient@email.com>
+
+This tests whatever transport is actually configured in your environment
+(via .env locally, or Render's Environment tab when run there):
+  - MAIL_RELAY_URL + MAIL_RELAY_SECRET  -> HTTPS relay (what Render must use)
+  - MAIL_USERNAME + MAIL_PASSWORD       -> Gmail SMTP (local development only;
+                                            this WILL fail on Render, since Render
+                                            blocks outbound SMTP ports entirely)
 """
-import smtplib, sys, os
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import sys
 
 try:
     from dotenv import load_dotenv
@@ -12,69 +19,40 @@ try:
 except ImportError:
     pass
 
-MAIL_USERNAME = (os.environ.get('MAIL_USERNAME') or '').strip()
-MAIL_PASSWORD = (os.environ.get('MAIL_PASSWORD') or '').replace(' ', '')
+import mailer
+import os
 
-print(f"MAIL_USERNAME : {MAIL_USERNAME or '(not set)'}")
-print(f"MAIL_PASSWORD : {'*' * len(MAIL_PASSWORD) if MAIL_PASSWORD else '(not set)'} ({len(MAIL_PASSWORD)} chars)")
-
-if not MAIL_USERNAME or not MAIL_PASSWORD:
-    print("\n❌ MAIL_USERNAME or MAIL_PASSWORD is missing in .env")
+to_email = sys.argv[1] if len(sys.argv) > 1 else os.environ.get('MAIL_USERNAME', '')
+if not to_email:
+    print("Usage: python test_email.py <recipient@email.com>")
     sys.exit(1)
 
-to_email = sys.argv[1] if len(sys.argv) > 1 else MAIL_USERNAME
+relay_url = os.environ.get('MAIL_RELAY_URL', '').strip()
+mail_user = os.environ.get('MAIL_USERNAME', '').strip()
+
+if relay_url:
+    print(f"Transport : HTTPS relay ({relay_url})")
+elif mail_user:
+    print(f"Transport : Gmail SMTP ({mail_user}) — local dev only, will NOT work on Render")
+else:
+    print("Transport : none configured! Set MAIL_RELAY_URL + MAIL_RELAY_SECRET")
+    print("            (see docs/mail_relay.gs), or MAIL_USERNAME + MAIL_PASSWORD for local dev.")
+    sys.exit(1)
+
 print(f"Sending test email to: {to_email}\n")
 
-# Build email
-msg = MIMEMultipart('alternative')
-msg['Subject'] = '[PEC Lost & Found] Email Test'
-msg['From']    = f'PEC Lost & Found <{MAIL_USERNAME}>'
-msg['To']      = to_email
-msg.attach(MIMEText('<p>This is a <strong>test email</strong> from PEC Lost &amp; Found.</p>', 'html'))
+ok, detail = mailer.deliver_email(
+    to_email,
+    '[PEC Lost & Found] Email Test',
+    '<p>This is a <strong>test email</strong> from PEC Lost &amp; Found.</p>',
+)
 
-# ── Try port 587 + STARTTLS ────────────────────────────────────────────────────
-print("Trying smtp.gmail.com:587 (STARTTLS)...")
-try:
-    with smtplib.SMTP('smtp.gmail.com', 587, timeout=10) as smtp:
-        smtp.ehlo()
-        smtp.starttls()
-        smtp.ehlo()
-        smtp.login(MAIL_USERNAME, MAIL_PASSWORD)
-        smtp.sendmail(MAIL_USERNAME, to_email, msg.as_string())
-    print(f"✅ Success! Email sent to {to_email}")
+if ok:
+    print(f"✅ Success — {detail}")
     sys.exit(0)
-except smtplib.SMTPAuthenticationError as e:
-    print(f"❌ AUTH FAILED on 587: {e}")
-    print("\n  ➜ Fix: Generate a new Gmail App Password:")
-    print("     1. Go to https://myaccount.google.com/security")
-    print("     2. Enable 2-Step Verification if not done")
-    print("     3. Search 'App passwords' → create one for 'Mail'")
-    print("     4. Paste the 16-char password into .env as MAIL_PASSWORD (no spaces needed)")
-except smtplib.SMTPException as e:
-    print(f"❌ SMTP error on 587: {e}")
-except Exception as e:
-    print(f"❌ Connection error on 587: {e}")
-
-# ── Fallback: try port 465 + SSL ───────────────────────────────────────────────
-print("\nTrying smtp.gmail.com:465 (SSL)...")
-try:
-    with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=10) as smtp:
-        smtp.login(MAIL_USERNAME, MAIL_PASSWORD)
-        smtp.sendmail(MAIL_USERNAME, to_email, msg.as_string())
-    print(f"✅ Success via SSL! Email sent to {to_email}")
-    print("\n  ➜ Update app.py send_email() to use SSL port 465 instead of STARTTLS 587.")
-    sys.exit(0)
-except smtplib.SMTPAuthenticationError as e:
-    print(f"❌ AUTH FAILED on 465: {e}")
-except Exception as e:
-    print(f"❌ Connection error on 465: {e}")
-
-print("\n─────────────────────────────────────────────────────")
-print("Both ports failed. Most likely cause: invalid App Password.")
-print("Steps to fix:")
-print("  1. Log in to https://myaccount.google.com with peclostandfound@gmail.com")
-print("  2. Security → 2-Step Verification → must be ON")
-print("  3. Search for 'App passwords' in the search bar")
-print("  4. Create a new App Password (select app: Mail, device: Other)")
-print("  5. Copy the 16 chars and paste into .env:")
-print("     MAIL_PASSWORD=abcdabcdabcdabcd")
+else:
+    print(f"❌ Failed — {detail}")
+    if not relay_url:
+        print("\n  → If this is meant to run on Render: SMTP is blocked there no matter what.")
+        print("    Set up docs/mail_relay.gs and add MAIL_RELAY_URL / MAIL_RELAY_SECRET instead.")
+    sys.exit(1)

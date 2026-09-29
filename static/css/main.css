@@ -578,6 +578,7 @@ select option { background: #1a1a1a; color: var(--text); }
 .notif-empty { padding: 48px 20px; text-align: center; color: var(--text-3); font-size: .875rem; }
 
 /* ─── Profile Popup ──────────────────────────────────────────── */
+.sidebar-user-wrap { position: relative; }
 .profile-popup {
   position: absolute; bottom: calc(100% + 8px); left: 12px; right: 12px;
   background: rgba(18,18,18,0.98);
