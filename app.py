@@ -820,14 +820,23 @@ def feedback():
             conn.close()
         stars = '⭐' * rating + '☆' * (5 - rating)
         comment_html = esc(comment).replace('\n', '<br>') if comment else '(no comment left)'
-        send_email(REVIEWS_EMAIL, f'[PEC Lost & Found] New review — {stars}',
+        # Send synchronously so we know the real delivery result before responding to the user.
+        ok, detail = mailer.deliver_email(
+            REVIEWS_EMAIL,
+            f'[PEC Lost & Found] New review — {stars}',
             email_body('New App Review', [
                 f'From: <strong>{esc(user["full_name"])}</strong> ({esc(user["email"])})',
                 f'Rating: {stars} ({rating}/5)',
                 f'Comment: {comment_html}',
             ]),
-            reply_to=user['email'])
-        flash('Thanks for your feedback! 🙏', 'success')
+            reply_to=user['email']
+        )
+        if ok:
+            print(f"✅ Feedback email sent to {REVIEWS_EMAIL} ({detail})")
+            flash('Thanks for your feedback! 🙏', 'success')
+        else:
+            print(f"❌ Feedback email to {REVIEWS_EMAIL} FAILED: {detail}")
+            flash('Feedback saved! (Email delivery failed — check Render logs for details.)', 'info')
         return redirect(url_for('dashboard'))
     return render_template('feedback.html')
 
