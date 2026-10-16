@@ -1,12 +1,12 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, Response, jsonify
-import os, cloudinary, cloudinary.uploader, smtplib, threading
+import os, cloudinary, cloudinary.uploader, threading
 import psycopg2
 import psycopg2.extras
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from functools import wraps
 from authlib.integrations.flask_client import OAuth
 from datetime import timedelta
+from html import escape as esc
+import mailer
 
 try:
     from dotenv import load_dotenv
@@ -173,8 +173,6 @@ except Exception as e:
     print("   Ensure DATABASE_URL is set correctly in your environment variables.")
 
 PEC_EMAIL_DOMAIN = '@pec.edu.in'
-MAIL_USERNAME = os.environ.get('MAIL_USERNAME', '')
-MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD', '')
 
 # ─── Notification Helpers ─────────────────────────────────────────────────────
 
@@ -191,33 +189,21 @@ def create_notification(user_id, notif_type, message, link=None):
     except Exception as e:
         print(f"Notification DB error: {e}")
 
-def send_email(to_email, subject, body):
-    """Send an email asynchronously via Gmail SMTP (port 587 + STARTTLS)."""
-    mail_user = (MAIL_USERNAME or '').strip()
-    mail_pass = (MAIL_PASSWORD or '').replace(' ', '')
-    if not mail_user or not mail_pass:
-        print("Email skipped: MAIL_USERNAME or MAIL_PASSWORD not set.")
-        return
+def send_email(to_email, subject, body, reply_to=None):
+    """Send an email in a background thread so requests never wait on the mail server.
+
+    Delivery goes through mailer.deliver_email (HTTPS relay on Render, SMTP locally).
+    The outcome is always logged, so failures are visible in Render's logs.
+    """
     def _send():
         try:
-            msg = MIMEMultipart('alternative')
-            msg['Subject'] = subject
-            msg['From'] = f'PEC Lost & Found <{mail_user}>'
-            msg['To'] = to_email
-            msg.attach(MIMEText(body, 'html'))
-            with smtplib.SMTP('smtp.gmail.com', 587) as smtp:
-                smtp.ehlo()
-                smtp.starttls()
-                smtp.ehlo()
-                smtp.login(mail_user, mail_pass)
-                smtp.sendmail(mail_user, to_email, msg.as_string())
-            print(f"✅ Email sent to {to_email}")
-        except smtplib.SMTPAuthenticationError as e:
-            print(f"❌ Email auth error (check App Password): {e}")
-        except smtplib.SMTPException as e:
-            print(f"❌ SMTP error: {e}")
-        except Exception as e:
-            print(f"❌ Email error: {e}")
+            ok, detail = mailer.deliver_email(to_email, subject, body, reply_to=reply_to)
+        except Exception as e:  # deliver_email never raises, but be safe inside a thread
+            ok, detail = False, f'unexpected error: {e}'
+        if ok:
+            print(f"✅ Email sent to {to_email} ({detail})")
+        else:
+            print(f"❌ Email to {to_email} FAILED: {detail}")
     threading.Thread(target=_send, daemon=True).start()
 
 def email_body(heading, lines, action_url=None, action_label=None):
@@ -408,6 +394,8 @@ def delete_account():
     for f in founds:
         db_execute(conn, 'DELETE FROM claims WHERE found_item_id = %s', (f['id'],))
     db_execute(conn, 'DELETE FROM found_items WHERE user_id = %s', (uid,))
+    db_execute(conn, 'DELETE FROM notifications WHERE user_id = %s', (uid,))
+    db_execute(conn, 'DELETE FROM reviews WHERE user_id = %s', (uid,))
     db_execute(conn, 'DELETE FROM users WHERE id = %s', (uid,))
     conn.commit()
     conn.close()
@@ -564,8 +552,8 @@ def post_found():
             create_notification(m['user_id'], 'found_match', f'A found {category} item was posted — could be yours!', url_for('browse', category=category))
             send_email(m['email'], f'[PEC Lost & Found] A found {category} item was posted',
                 email_body('Possible Match Found!', [
-                    f'Hi {m["full_name"].split()[0]},',
-                    f'Someone just posted a found item in the <strong style="color:#3b82f6">{category}</strong> category.',
+                    f'Hi {esc(m["full_name"].split()[0])},',
+                    f'Someone just posted a found item in the <strong style="color:#3b82f6">{esc(category)}</strong> category.',
                     'It might be your lost item. Click below to browse and claim it.'
                 ], link, 'View Found Items'))
         flash('Found item posted!', 'success')
@@ -616,9 +604,9 @@ def claim_item(found_item_id):
         create_notification(found_item['user_id'], 'claim_received', notif_msg, url_for('dashboard'))
         send_email(finder['email'], '[PEC Lost & Found] Someone claimed your found item',
             email_body('New Claim Received!', [
-                f'Hi {finder["full_name"].split()[0]},',
-                f'<strong>{claimant["full_name"]}</strong> has submitted a claim on your found item:',
-                f'<em style="color:#a0a0a0">"{found_item["brief_description"]}"</em>',
+                f'Hi {esc(finder["full_name"].split()[0])},',
+                f'<strong>{esc(claimant["full_name"])}</strong> has submitted a claim on your found item:',
+                f'<em style="color:#a0a0a0">"{esc(found_item["brief_description"])}"</em>',
                 'Log in to your dashboard to review their hidden details and approve or reject the claim.'
             ], url_for('dashboard', _external=True), 'Review Claim'))
         flash('Claim submitted! The finder will review your description.', 'success')
@@ -659,8 +647,8 @@ def resolve_claim(claim_id, action):
             f'Your claim on "{item_desc}" was approved! Contact the finder to collect your item.', url_for('dashboard'))
         send_email(claimant['email'], '[PEC Lost & Found] Your claim was approved! 🎉',
             email_body('Claim Approved!', [
-                f'Hi {claimant["full_name"].split()[0]},',
-                f'Great news! Your claim on <em style="color:#a0a0a0">"{item_desc}"</em> has been <strong style="color:#22c55e">approved</strong>.',
+                f'Hi {esc(claimant["full_name"].split()[0])},',
+                f'Great news! Your claim on <em style="color:#a0a0a0">"{esc(item_desc)}"</em> has been <strong style="color:#22c55e">approved</strong>.',
                 'The finder has confirmed you are the owner. Please contact them to collect your item.'
             ], url_for('dashboard', _external=True), 'Go to Dashboard'))
         flash('Claim approved! Item marked as returned.', 'success')
@@ -672,8 +660,8 @@ def resolve_claim(claim_id, action):
             f'Your claim on "{item_desc}" was rejected. You can still browse other found items.', url_for('browse'))
         send_email(claimant['email'], '[PEC Lost & Found] Your claim was not approved',
             email_body('Claim Rejected', [
-                f'Hi {claimant["full_name"].split()[0]},',
-                f'Unfortunately your claim on <em style="color:#a0a0a0">"{item_desc}"</em> was <strong style="color:#ef4444">rejected</strong> by the finder.',
+                f'Hi {esc(claimant["full_name"].split()[0])},',
+                f'Unfortunately your claim on <em style="color:#a0a0a0">"{esc(item_desc)}"</em> was <strong style="color:#ef4444">rejected</strong> by the finder.',
                 'This may mean the item belongs to someone else. You can continue browsing found items.'
             ], url_for('browse', _external=True), 'Browse Found Items'))
         flash('Claim rejected.', 'info')
@@ -758,7 +746,7 @@ def get_notifications():
             (session['user_id'],))
         notifs = cur.fetchall()
         cur = db_execute(conn,
-            'SELECT COUNT(*) FROM notifications WHERE user_id=%s AND is_read=FALSE',
+            'SELECT COUNT(*) FROM notifications WHERE user_id=%s AND is_read=0',
             (session['user_id'],))
         unread = cur.fetchone()['count']
         conn.close()
@@ -780,7 +768,7 @@ def mark_all_read():
         return jsonify({'ok': False}), 401
     try:
         conn = get_db()
-        db_execute(conn, 'UPDATE notifications SET is_read=TRUE WHERE user_id=%s', (session['user_id'],))
+        db_execute(conn, 'UPDATE notifications SET is_read=1 WHERE user_id=%s', (session['user_id'],))
         conn.commit()
         conn.close()
     except Exception as e:
@@ -793,7 +781,7 @@ def mark_one_read(notif_id):
         return jsonify({'ok': False}), 401
     try:
         conn = get_db()
-        db_execute(conn, 'UPDATE notifications SET is_read=TRUE WHERE id=%s AND user_id=%s',
+        db_execute(conn, 'UPDATE notifications SET is_read=1 WHERE id=%s AND user_id=%s',
             (notif_id, session['user_id']))
         conn.commit()
         conn.close()
@@ -811,24 +799,44 @@ def feedback():
     user = get_current_user()
     if request.method == 'POST':
         rating = request.form.get('rating', '').strip()
-        comment = request.form.get('comment', '').strip()
+        comment = request.form.get('comment', '').strip()[:2000]
         if not rating.isdigit() or not (1 <= int(rating) <= 5):
             flash('Please select a star rating.', 'error')
             return render_template('feedback.html')
         rating = int(rating)
         conn = get_db()
-        db_execute(conn, 'INSERT INTO reviews (user_id, rating, comment) VALUES (%s,%s,%s)',
-            (session['user_id'], rating, comment or None))
-        conn.commit()
-        conn.close()
+        try:
+            # Small rate limit: each review sends an email, and the mail relay has a daily quota.
+            cur = db_execute(conn,
+                "SELECT COUNT(*) AS n FROM reviews WHERE user_id=%s AND created_at > NOW() - INTERVAL '1 hour'",
+                (session['user_id'],))
+            if cur.fetchone()['n'] >= 3:
+                flash('You have sent several reviews recently — please try again a little later.', 'error')
+                return render_template('feedback.html')
+            db_execute(conn, 'INSERT INTO reviews (user_id, rating, comment) VALUES (%s,%s,%s)',
+                (session['user_id'], rating, comment or None))
+            conn.commit()
+        finally:
+            conn.close()
         stars = '⭐' * rating + '☆' * (5 - rating)
-        send_email(REVIEWS_EMAIL, f'[PEC Lost & Found] New review — {stars}',
+        comment_html = esc(comment).replace('\n', '<br>') if comment else '(no comment left)'
+        # Send synchronously so we know the real delivery result before responding to the user.
+        ok, detail = mailer.deliver_email(
+            REVIEWS_EMAIL,
+            f'[PEC Lost & Found] New review — {stars}',
             email_body('New App Review', [
-                f'From: <strong>{user["full_name"]}</strong> ({user["email"]})',
+                f'From: <strong>{esc(user["full_name"])}</strong> ({esc(user["email"])})',
                 f'Rating: {stars} ({rating}/5)',
-                f'Comment: {comment or "(no comment left)"}',
-            ]))
-        flash('Thanks for your feedback! 🙏', 'success')
+                f'Comment: {comment_html}',
+            ]),
+            reply_to=user['email']
+        )
+        if ok:
+            print(f"✅ Feedback email sent to {REVIEWS_EMAIL} ({detail})")
+            flash('Thanks for your feedback! 🙏', 'success')
+        else:
+            print(f"❌ Feedback email to {REVIEWS_EMAIL} FAILED: {detail}")
+            flash('Feedback saved! (Email delivery failed — check Render logs for details.)', 'info')
         return redirect(url_for('dashboard'))
     return render_template('feedback.html')
 
