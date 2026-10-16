@@ -677,6 +677,24 @@ def resolve_claim(claim_id, action):
         flash('Claim rejected.', 'info')
     return redirect(url_for('dashboard'))
 
+# ─── Mark Lost Item as Returned ──────────────────────────────────────────────
+
+@app.route('/mark-lost-returned/<int:item_id>', methods=['POST'])
+@login_required
+def mark_lost_returned(item_id):
+    """Let the owner close their own lost-item post once they've got it back."""
+    conn = get_db()
+    cur = db_execute(conn, 'SELECT id FROM lost_items WHERE id = %s AND user_id = %s AND status = \'open\'',
+        (item_id, session['user_id']))
+    if cur.fetchone():
+        db_execute(conn, 'UPDATE lost_items SET status = \'resolved\' WHERE id = %s', (item_id,))
+        conn.commit()
+        flash('Great news! Your item has been marked as returned. 🎉', 'success')
+    else:
+        flash('Item not found or already resolved.', 'error')
+    conn.close()
+    return redirect(url_for('dashboard'))
+
 # ─── Delete ───────────────────────────────────────────────────────────────────
 
 @app.route('/delete-lost/<int:item_id>', methods=['POST'])
