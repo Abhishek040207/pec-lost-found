@@ -7,6 +7,7 @@ from authlib.integrations.flask_client import OAuth
 from datetime import timedelta
 from html import escape as esc
 import mailer
+import urllib.parse as _urlparse
 
 try:
     from dotenv import load_dotenv
@@ -57,18 +58,25 @@ DATABASE_URL = os.environ.get('DATABASE_URL', '').strip().strip('"').strip("'")
 if DATABASE_URL.startswith('postgres://'):
     DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
 
-# Strip sslmode from URL — we pass it as a kwarg to avoid URL parsing quirks
-_DB_SSLMODE = 'require' if 'neon.tech' in DATABASE_URL or 'render.com' in DATABASE_URL or 'sslmode=require' in DATABASE_URL else None
-DATABASE_URL = DATABASE_URL.split('?')[0] if '?' in DATABASE_URL else DATABASE_URL
-
-print(f"🔌 DB host: {DATABASE_URL.split('@')[-1].split('/')[0] if '@' in DATABASE_URL else 'unknown'} | SSL: {_DB_SSLMODE}")
+print(f"🔌 Raw DB URL prefix: {DATABASE_URL[:30]}...")
 
 def get_db():
-    """Open a new PostgreSQL connection with dict-like row access."""
-    kwargs = {}
-    if _DB_SSLMODE:
-        kwargs['sslmode'] = _DB_SSLMODE
-    conn = psycopg2.connect(DATABASE_URL, **kwargs)
+    """Open a new PostgreSQL connection with dict-like row access.
+
+    Parses DATABASE_URL manually so psycopg2 never has to parse the URL string
+    itself — this avoids all sslmode parsing bugs across psycopg2 versions.
+    """
+    p = _urlparse.urlparse(DATABASE_URL)
+    needs_ssl = p.hostname and ('neon.tech' in p.hostname or 'render.com' in p.hostname)
+    conn = psycopg2.connect(
+        host=p.hostname,
+        port=p.port or 5432,
+        dbname=(p.path or '/neondb').lstrip('/') or 'neondb',
+        user=p.username,
+        password=p.password,
+        sslmode='require' if needs_ssl else 'prefer',
+        connect_timeout=10
+    )
     return conn
 
 def db_execute(conn, sql, params=None):
