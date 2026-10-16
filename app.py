@@ -540,22 +540,32 @@ def post_found():
              request.form.get('exact_location', '').strip() or None,
              date_found))
         conn.commit()
-        # Notify users who have open lost items in the same category
+        # Notify users who have open lost items in the same category.
+        # DISTINCT ON ensures each user gets exactly one email even if they
+        # have multiple open lost items in the same category.
         cur = db_execute(conn,
-            'SELECT l.user_id, u.email, u.full_name FROM lost_items l JOIN users u ON l.user_id=u.id WHERE l.category=%s AND l.status=\'open\' AND l.user_id!=%s',
+            '''SELECT DISTINCT ON (l.user_id) l.user_id, u.email, u.full_name
+               FROM lost_items l
+               JOIN users u ON l.user_id = u.id
+               WHERE l.category = %s AND l.status = 'open' AND l.user_id != %s''',
             (category, session['user_id'])
         )
         matched = cur.fetchall()
         conn.close()
         for m in matched:
             link = url_for('browse', category=category, _external=True)
-            create_notification(m['user_id'], 'found_match', f'A found {category} item was posted — could be yours!', url_for('browse', category=category))
-            send_email(m['email'], f'[PEC Lost & Found] A found {category} item was posted',
+            create_notification(m['user_id'], 'found_match',
+                f'A found {category} item was posted — could be yours!',
+                url_for('browse', category=category))
+            send_email(
+                m['email'],
+                f'[PEC Lost & Found] A found {category} item was posted',
                 email_body('Possible Match Found!', [
                     f'Hi {esc(m["full_name"].split()[0])},',
-                    f'Someone just posted a found item in the <strong style="color:#3b82f6">{esc(category)}</strong> category.',
-                    'It might be your lost item. Click below to browse and claim it.'
-                ], link, 'View Found Items'))
+                    f'Someone just posted a found <strong style="color:#3b82f6">{esc(category)}</strong> item on campus.',
+                    'It might be yours! Click below to browse and submit a claim.',
+                ], link, 'View Found Items')
+            )
         flash('Found item posted!', 'success')
         return redirect(url_for('dashboard'))
     return render_template('post_found.html', categories=CATEGORIES, locations=locations)
