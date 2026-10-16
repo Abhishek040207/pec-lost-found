@@ -15,6 +15,7 @@ A full-stack web app for Punjab Engineering College students to report, browse, 
 - **Mark Lost Item as Returned** — close your own lost post once you've got it back
 - **Smart Email Notifications** — get emailed when a found item matches your lost category
 - **In-App Notification Bell** — real-time notification drawer, polls every 30 seconds
+- **Light / Dark Mode** — toggle in sidebar, preference saved to localStorage with zero flash on load
 - **Dashboard** — manage all your posts, review incoming claims, see stats
 - **Browse & Filter** — search by keyword, filter by category, paginated results
 - **Feedback System** — star ratings + comments sent to the admin email
@@ -28,7 +29,7 @@ A full-stack web app for Punjab Engineering College students to report, browse, 
 | Layer | Technology |
 |---|---|
 | Backend | Python / Flask |
-| Database | PostgreSQL (via psycopg2) |
+| Database | PostgreSQL via psycopg2 (hosted on **[Neon](https://neon.tech)** — free, no expiry) |
 | Auth | Google OAuth 2.0 (Authlib) |
 | Image Storage | Cloudinary |
 | Email | Google Apps Script HTTPS relay (see `docs/mail_relay.gs`) |
