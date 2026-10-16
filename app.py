@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, Response, jsonify
-import os, re, cloudinary, cloudinary.uploader, threading
+import os, re, time, cloudinary, cloudinary.uploader, threading
 import psycopg2
 import psycopg2.extras
 from functools import wraps
@@ -686,6 +686,25 @@ def post_found():
         return redirect(url_for('dashboard'))
     return render_template('post_found.html', categories=CATEGORIES, locations=locations)
 
+# ─── Claim rate limits ────────────────────────────────────────────────────────
+# Stops people from guessing "hidden details" across many found items.
+CLAIMS_PER_HOUR = 5
+CLAIMS_PER_DAY = 10
+
+def claim_limit_reached(conn, user_id):
+    """Return 'hour' or 'day' if the user hit a claim limit, else None."""
+    cur = db_execute(conn, """
+        SELECT COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '1 hour') AS last_hour,
+               COUNT(*) AS last_day
+        FROM claims
+        WHERE claimant_user_id = %s AND created_at > NOW() - INTERVAL '1 day'""", (user_id,))
+    row = cur.fetchone()
+    if row['last_hour'] >= CLAIMS_PER_HOUR:
+        return 'hour'
+    if row['last_day'] >= CLAIMS_PER_DAY:
+        return 'day'
+    return None
+
 # ─── Claim ────────────────────────────────────────────────────────────────────
 
 @app.route('/claim/<int:found_item_id>', methods=['GET', 'POST'])
@@ -717,6 +736,12 @@ def claim_item(found_item_id):
             flash('Please provide more detail (min 20 chars).', 'error')
             conn.close()
             return render_template('claim.html', found_item=found_item, existing_claim=None)
+        limit = claim_limit_reached(conn, session['user_id'])
+        if limit:
+            flash('You have submitted several claims in the last hour — please try again later.' if limit == 'hour'
+                  else "You have reached today's claim limit — please try again tomorrow.", 'error')
+            conn.close()
+            return redirect(url_for('browse'))
         db_execute(conn, 'INSERT INTO claims (found_item_id,claimant_user_id,hidden_details) VALUES (%s,%s,%s)',
             (found_item_id, session['user_id'], hidden_details))
         conn.commit()
@@ -810,6 +835,87 @@ def mark_lost_returned(item_id):
         flash('Item not found or already resolved.', 'error')
     conn.close()
     return redirect(url_for('dashboard'))
+
+# ─── Auto-delete old posts ────────────────────────────────────────────────────
+# Open lost/found posts are deleted POST_LIFETIME_DAYS after they were created.
+# Resolved posts are kept (they feed the profile stats). Found posts that still
+# have a pending claim are skipped until that claim is decided.
+# No scheduler needed: the first request after CLEANUP_INTERVAL seconds triggers
+# the cleanup in a background thread.
+
+POST_LIFETIME_DAYS = 30
+CLEANUP_INTERVAL = 6 * 3600
+_last_cleanup = 0.0
+_cleanup_lock = threading.Lock()
+
+def _cloudinary_public_id(url):
+    """'pec_lost_found/abc123' from a Cloudinary delivery URL (None if unparseable)."""
+    try:
+        tail = url.split('/upload/', 1)[1]
+        tail = re.sub(r'^v\d+/', '', tail)
+        return tail.rsplit('.', 1)[0]
+    except Exception:
+        return None
+
+def delete_expired_posts():
+    """Delete open posts older than POST_LIFETIME_DAYS. Returns counts."""
+    removed = {'lost': 0, 'found': 0}
+    images = []
+    conn = get_db()
+    try:
+        cur = db_execute(conn,
+            """DELETE FROM lost_items
+               WHERE status = 'open' AND created_at < NOW() - (%s * INTERVAL '1 day')
+               RETURNING image_path""", (POST_LIFETIME_DAYS,))
+        rows = cur.fetchall()
+        removed['lost'] = len(rows)
+        images = [r['image_path'] for r in rows if r['image_path']]
+
+        cur = db_execute(conn,
+            """SELECT f.id FROM found_items f
+               WHERE f.status = 'open' AND f.created_at < NOW() - (%s * INTERVAL '1 day')
+                 AND NOT EXISTS (SELECT 1 FROM claims c
+                                 WHERE c.found_item_id = f.id AND c.status = 'pending')""",
+            (POST_LIFETIME_DAYS,))
+        ids = [r['id'] for r in cur.fetchall()]
+        if ids:
+            db_execute(conn, 'DELETE FROM claims WHERE found_item_id = ANY(%s)', (ids,))
+            db_execute(conn, 'DELETE FROM found_items WHERE id = ANY(%s)', (ids,))
+        removed['found'] = len(ids)
+        conn.commit()
+    finally:
+        conn.close()
+    # Best-effort: free the Cloudinary storage used by deleted lost posts.
+    if _cloudinary_configured:
+        for url in images:
+            pid = _cloudinary_public_id(url)
+            if pid:
+                try:
+                    cloudinary.uploader.destroy(pid)
+                except Exception as e:
+                    print(f"Cloudinary delete error: {e}")
+    return removed
+
+def _cleanup_worker():
+    try:
+        removed = delete_expired_posts()
+        if removed['lost'] or removed['found']:
+            print(f"🧹 Deleted expired posts: {removed}")
+    except Exception as e:
+        print(f"Cleanup error: {e}")
+
+@app.before_request
+def maybe_run_cleanup():
+    """At most once per CLEANUP_INTERVAL, start the cleanup in the background."""
+    global _last_cleanup
+    now = time.time()
+    if now - _last_cleanup < CLEANUP_INTERVAL:
+        return
+    with _cleanup_lock:
+        if now - _last_cleanup < CLEANUP_INTERVAL:
+            return
+        _last_cleanup = now
+    threading.Thread(target=_cleanup_worker, daemon=True).start()
 
 # ─── Delete ───────────────────────────────────────────────────────────────────
 
