@@ -1,3 +1,35 @@
+// ─── Theme Toggle ─────────────────────────────────────────────
+function toggleTheme() {
+  const html = document.documentElement;
+  const current = html.getAttribute('data-theme') || 'dark';
+  const next = current === 'dark' ? 'light' : 'dark';
+  html.setAttribute('data-theme', next);
+  localStorage.setItem('pec-theme', next);
+  updateThemeUI(next);
+}
+
+function updateThemeUI(theme) {
+  const moon  = document.getElementById('iconMoon');
+  const sun   = document.getElementById('iconSun');
+  const label = document.getElementById('themeLabel');
+  if (!moon || !sun) return;
+  if (theme === 'light') {
+    moon.style.display  = 'none';
+    sun.style.display   = 'block';
+    if (label) label.textContent = 'Dark Mode';
+  } else {
+    moon.style.display  = 'block';
+    sun.style.display   = 'none';
+    if (label) label.textContent = 'Light Mode';
+  }
+}
+
+// Sync icon state on page load
+(function () {
+  var t = localStorage.getItem('pec-theme') || 'dark';
+  updateThemeUI(t);
+})();
+
 // ─── Sidebar Toggle ───────────────────────────────────────────
 function toggleSidebar() {
   const sidebar = document.getElementById('sidebar');
