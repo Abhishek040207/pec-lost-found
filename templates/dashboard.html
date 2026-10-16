@@ -59,7 +59,7 @@
           <div class="card-img-placeholder">📦</div>
         {% endif %}
         <span class="card-badge badge-lost">Lost</span>
-        {% if item.status == 'resolved' %}<span class="card-badge badge-resolved" style="top:36px;">Resolved</span>{% endif %}
+        {% if item.status == 'resolved' %}<span class="card-badge badge-resolved" style="top:36px;">Returned ✓</span>{% endif %}
       </div>
       <div class="card-body">
         <div class="card-title">{{ item.item_name }}</div>
@@ -72,9 +72,16 @@
       </div>
       <div class="card-footer">
         <span class="poster-info">{{ item.created_at | datefmt }}</span>
-        <form method="POST" action="{{ url_for('delete_lost', item_id=item.id) }}" style="display:inline;" onsubmit="return confirm('Delete this post permanently?')">
-          <button type="submit" class="btn btn-danger btn-sm">Delete</button>
-        </form>
+        <div style="display:flex;gap:6px;">
+          {% if item.status == 'open' %}
+          <form method="POST" action="{{ url_for('mark_lost_returned', item_id=item.id) }}" style="display:inline;" onsubmit="return confirm('Mark this item as returned? It will be closed and removed from public listings.')">
+            <button type="submit" class="btn btn-success btn-sm">✓ Got it back</button>
+          </form>
+          {% endif %}
+          <form method="POST" action="{{ url_for('delete_lost', item_id=item.id) }}" style="display:inline;" onsubmit="return confirm('Delete this post permanently?')">
+            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+          </form>
+        </div>
       </div>
     </div>
     {% endfor %}
