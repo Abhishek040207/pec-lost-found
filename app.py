@@ -57,11 +57,18 @@ DATABASE_URL = os.environ.get('DATABASE_URL', '').strip().strip('"').strip("'")
 if DATABASE_URL.startswith('postgres://'):
     DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
 
-print(f"🔌 Connecting to DB host: {DATABASE_URL.split('@')[-1].split('/')[0] if '@' in DATABASE_URL else 'unknown'}")
+# Strip sslmode from URL — we pass it as a kwarg to avoid URL parsing quirks
+_DB_SSLMODE = 'require' if 'neon.tech' in DATABASE_URL or 'render.com' in DATABASE_URL or 'sslmode=require' in DATABASE_URL else None
+DATABASE_URL = DATABASE_URL.split('?')[0] if '?' in DATABASE_URL else DATABASE_URL
+
+print(f"🔌 DB host: {DATABASE_URL.split('@')[-1].split('/')[0] if '@' in DATABASE_URL else 'unknown'} | SSL: {_DB_SSLMODE}")
 
 def get_db():
     """Open a new PostgreSQL connection with dict-like row access."""
-    conn = psycopg2.connect(DATABASE_URL)
+    kwargs = {}
+    if _DB_SSLMODE:
+        kwargs['sslmode'] = _DB_SSLMODE
+    conn = psycopg2.connect(DATABASE_URL, **kwargs)
     return conn
 
 def db_execute(conn, sql, params=None):
