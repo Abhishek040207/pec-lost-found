@@ -1,252 +1,212 @@
-// ─── Theme Toggle ─────────────────────────────────────────────
-function toggleTheme() {
-  const html = document.documentElement;
-  const current = html.getAttribute('data-theme') || 'dark';
-  const next = current === 'dark' ? 'light' : 'dark';
-  html.setAttribute('data-theme', next);
-  localStorage.setItem('pec-theme', next);
-  updateThemeUI(next);
-}
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-function updateThemeUI(theme) {
-  const moon  = document.getElementById('iconMoon');
-  const sun   = document.getElementById('iconSun');
-  const label = document.getElementById('themeLabel');
-  if (!moon || !sun) return;
-  if (theme === 'light') {
-    moon.style.display  = 'none';
-    sun.style.display   = 'block';
-    if (label) label.textContent = 'Dark Mode';
-  } else {
-    moon.style.display  = 'block';
-    sun.style.display   = 'none';
-    if (label) label.textContent = 'Light Mode';
-  }
-}
+    <!-- Google Search Console Verification -->
+    <meta name="google-site-verification" content="RKkzoxOB6dPX9LfBzV-Lb_LhYTKBHRRCSQE1cagv3qA" />
 
-// Sync icon state on page load
-(function () {
-  var t = localStorage.getItem('pec-theme') || 'dark';
-  updateThemeUI(t);
-})();
+    <!-- SEO Meta Tags -->
+    <title>{% block title %}PEC Lost & Found — Punjab Engineering College{% endblock %}</title>
+    <meta name="description" content="Lost something at Punjab Engineering College, Chandigarh? Report lost items, find found items, and reclaim your belongings on PEC's official Lost & Found portal.">
+    <meta name="keywords" content="PEC lost and found, Punjab Engineering College lost, PEC Chandigarh lost item, PEC found item, lost at PEC, found at PEC, pec-lost-found">
+    <meta name="author" content="Punjab Engineering College">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://pec-lost-found.onrender.com">
 
-// ─── Sidebar Toggle ───────────────────────────────────────────
-function toggleSidebar() {
-  const sidebar = document.getElementById('sidebar');
-  const overlay = document.getElementById('sidebarOverlay');
-  if (sidebar) sidebar.classList.toggle('open');
-  if (overlay) overlay.classList.toggle('open');
-}
+    <!-- Open Graph (WhatsApp / Facebook preview) -->
+    <meta property="og:title" content="PEC Lost & Found — Punjab Engineering College">
+    <meta property="og:description" content="Lost something at PEC Chandigarh? Report it here or find items turned in by fellow students.">
+    <meta property="og:url" content="https://pec-lost-found.onrender.com">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="PEC Lost & Found">
 
-// ─── Auto-dismiss Toasts ──────────────────────────────────────
-(function () {
-  const container = document.getElementById('toastContainer');
-  if (!container) return;
-  const toasts = container.querySelectorAll('.toast');
-  toasts.forEach((t, i) => {
-    setTimeout(() => {
-      t.style.opacity = '0';
-      t.style.transform = 'translateX(20px)';
-      t.style.transition = 'opacity .3s, transform .3s';
-      setTimeout(() => t.remove(), 320);
-    }, 3500 + i * 400);
-  });
-})();
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="PEC Lost & Found">
+    <meta name="twitter:description" content="Lost something at Punjab Engineering College? Find it here.">
 
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Nunito:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+    {% block extra_css %}{% endblock %}
+    <!-- Init theme BEFORE paint to prevent flash -->
+    <script>
+      (function(){
+        var t = localStorage.getItem('pec-theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', t);
+      })();
+    </script>
+</head>
+<body class="{% block body_class %}{% endblock %}">
 
-// ─── Image Preview ────────────────────────────────────────────
-function initImagePreview() {
-  const input = document.getElementById('imageInput');
-  const preview = document.getElementById('imagePreview');
-  const previewImg = preview ? preview.querySelector('img') : null;
-  const drop = document.querySelector('.file-drop');
-
-  if (!input || !preview || !previewImg) return;
-
-  input.addEventListener('change', () => {
-    const file = input.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = e => {
-        previewImg.src = e.target.result;
-        preview.style.display = 'block';
-      };
-      reader.readAsDataURL(file);
-    }
-  });
-
-  if (drop) {
-    drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('dragover'); });
-    drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
-    drop.addEventListener('drop', e => {
-      e.preventDefault();
-      drop.classList.remove('dragover');
-      if (e.dataTransfer.files.length) {
-        input.files = e.dataTransfer.files;
-        input.dispatchEvent(new Event('change'));
-      }
-    });
-  }
-}
-
-// ─── Browse Tabs ──────────────────────────────────────────────
-function initBrowseTabs() {
-  const tabs = document.querySelectorAll('.tab-btn');
-  const lostSection = document.getElementById('lostSection');
-  const foundSection = document.getElementById('foundSection');
-  if (!tabs.length) return;
-
-  tabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      tabs.forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      const target = tab.dataset.tab;
-      if (lostSection) lostSection.style.display = target === 'lost' ? 'block' : 'none';
-      if (foundSection) foundSection.style.display = target === 'found' ? 'block' : 'none';
-    });
-  });
-}
-
-// ─── Notification Drawer ──────────────────────────────────────
-let notifDrawerOpen = false;
-
-function toggleNotifDrawer() {
-  const drawer = document.getElementById('notifDrawer');
-  const overlay = document.getElementById('notifOverlay');
-  if (!drawer) return;
-  notifDrawerOpen = !notifDrawerOpen;
-  if (notifDrawerOpen) {
-    drawer.classList.add('open');
-    if (overlay) overlay.classList.add('open');
-    fetchNotifications();
-  } else {
-    drawer.classList.remove('open');
-    if (overlay) overlay.classList.remove('open');
-  }
-}
-
-// ─── Profile Popup ────────────────────────────────────────────
-let profilePopupOpen = false;
-
-function toggleProfilePopup() {
-  const popup = document.getElementById('profilePopup');
-  if (!popup) return;
-  profilePopupOpen = !profilePopupOpen;
-  if (profilePopupOpen) {
-    popup.style.display = 'block';
-    requestAnimationFrame(() => popup.classList.add('open'));
-  } else {
-    popup.classList.remove('open');
-    setTimeout(() => { popup.style.display = 'none'; }, 200);
-  }
-}
-
-// Close popups when clicking outside
-document.addEventListener('click', e => {
-  // Close profile popup
-  const sidebarUser = document.getElementById('sidebarUser');
-  const profilePopup = document.getElementById('profilePopup');
-  if (profilePopupOpen && profilePopup && sidebarUser) {
-    if (!sidebarUser.contains(e.target) && !profilePopup.contains(e.target)) {
-      profilePopupOpen = false;
-      profilePopup.classList.remove('open');
-      setTimeout(() => { profilePopup.style.display = 'none'; }, 200);
-    }
-  }
-});
-
-function timeAgo(dateStr) {
-  const diff = Math.floor((Date.now() - new Date(dateStr + 'Z').getTime()) / 1000);
-  if (diff < 60) return 'just now';
-  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
-  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
-  return Math.floor(diff / 86400) + 'd ago';
-}
-
-const NOTIF_ICONS = {
-  claim_received: '📬',
-  claim_approved: '✅',
-  claim_rejected: '❌',
-  found_match: '🔍'
-};
-
-function renderNotifications(data) {
-  const badge = document.getElementById('notifBadge');
-  const list = document.getElementById('notifList');
-  if (!badge || !list) return;
-
-  // Update badge
-  if (data.unread > 0) {
-    badge.textContent = data.unread > 9 ? '9+' : data.unread;
-    badge.style.display = 'flex';
-  } else {
-    badge.style.display = 'none';
-  }
-
-  // Render list
-  if (!data.notifications.length) {
-    list.innerHTML = '<div class="notif-empty">No notifications yet</div>';
-    return;
-  }
-  list.innerHTML = data.notifications.map(n => `
-    <div class="notif-item ${n.is_read ? '' : 'unread'}" onclick="handleNotifClick(${n.id}, '${n.link || ''}')">
-      <div class="notif-icon">${NOTIF_ICONS[n.type] || '🔔'}</div>
-      <div class="notif-content">
-        <div class="notif-msg">${n.message}</div>
-        <div class="notif-time">${timeAgo(n.created_at)}</div>
-      </div>
-      ${n.is_read ? '' : '<div class="notif-dot"></div>'}
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="toast-container" id="toastContainer">
+      {% for category, message in messages %}
+        <div class="toast toast-{{ category }}">
+          <span class="toast-icon">{% if category == 'success' %}✓{% elif category == 'error' %}✕{% else %}i{% endif %}</span>
+          <span class="toast-msg">{{ message }}</span>
+        </div>
+      {% endfor %}
     </div>
-  `).join('');
-}
+  {% endif %}
+{% endwith %}
 
-function handleNotifClick(id, link) {
-  fetch(`/notifications/${id}/read`, { method: 'POST' });
-  if (link) {
-    window.location.href = link;
-  } else {
-    // Close the notification drawer
-    notifDrawerOpen = false;
-    const drawer = document.getElementById('notifDrawer');
-    const overlay = document.getElementById('notifOverlay');
-    if (drawer) drawer.classList.remove('open');
-    if (overlay) overlay.classList.remove('open');
-  }
-  fetchNotifications();
-}
+{% block full_page %}
+{% if session.user_id %}
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-logo brand-logo-img">
+        <img src="{{ url_for('static', filename='img/pec-logo.png') }}" alt="PEC" class="brand-logo-image">
+      </div>
+      <div>
+        <div class="brand-sub" style="font-size:.95rem;font-weight:700;color:var(--text);">Lost &amp; Found</div>
+      </div>
+    </div>
 
-function markAllRead() {
-  fetch('/notifications/mark-read', { method: 'POST' })
-    .then(() => fetchNotifications());
-}
+    <nav class="sidebar-nav">
+      <a href="{{ url_for('dashboard') }}" class="nav-item {% if request.endpoint == 'dashboard' %}active{% endif %}">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </a>
+      <a href="{{ url_for('browse') }}" class="nav-item {% if request.endpoint == 'browse' %}active{% endif %}">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        Browse Items
+      </a>
+      <div class="nav-section-label">Post</div>
+      <a href="{{ url_for('post_lost') }}" class="nav-item {% if request.endpoint == 'post_lost' %}active{% endif %}">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        Lost Item
+      </a>
+      <a href="{{ url_for('post_found') }}" class="nav-item {% if request.endpoint == 'post_found' %}active{% endif %}">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+        Found Item
+      </a>
+      <div class="nav-section-label">Account</div>
+      <a href="{{ url_for('feedback') }}" class="nav-item {% if request.endpoint == 'feedback' %}active{% endif %}">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17.75l-6.16 3.24 1.18-6.88L2 9.24l6.92-1L12 2l3.08 6.24 6.92 1-5.02 4.87 1.18 6.88z"/></svg>
+        Feedback
+      </a>
+      <a href="{{ url_for('logout') }}" class="nav-item nav-logout">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Logout
+      </a>
+    </nav>
 
-function fetchNotifications() {
-  fetch('/notifications')
-    .then(r => {
-      if (!r.ok) { console.warn('Notifications fetch failed:', r.status); return null; }
-      return r.json();
-    })
-    .then(data => { if (data) renderNotifications(data); })
-    .catch(err => console.warn('Notifications error:', err));
-}
+      <!-- Theme Toggle -->
+      <div class="nav-section-label">Preferences</div>
+      <button class="theme-toggle-btn" id="themeToggleBtn" onclick="toggleTheme()" title="Switch theme">
+        <!-- Moon icon (shown in dark mode) -->
+        <svg id="iconMoon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+        <!-- Sun icon (shown in light mode, hidden by default) -->
+        <svg id="iconSun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;">
+          <circle cx="12" cy="12" r="5"/>
+          <line x1="12" y1="1" x2="12" y2="3"/>
+          <line x1="12" y1="21" x2="12" y2="23"/>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+          <line x1="1" y1="12" x2="3" y2="12"/>
+          <line x1="21" y1="12" x2="23" y2="12"/>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+        </svg>
+        <span id="themeLabel">Light Mode</span>
+      </button>
 
-function initNotifications() {
-  if (!document.getElementById('notifBellBtn')) return;
-  fetchNotifications();
-  setInterval(fetchNotifications, 30000);
-}
+      <!-- Notification Bell -->
+      <div class="notif-bell-wrap" id="notifWrap">
+        <button class="notif-bell-btn" id="notifBellBtn" onclick="toggleNotifDrawer()" title="Notifications">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          Notifications
+          <span class="notif-badge" id="notifBadge" style="display:none;">0</span>
+        </button>
+      </div>
 
-// ─── Confirm Delete ───────────────────────────────────────────
-document.addEventListener('click', e => {
-  if (e.target.closest('[data-confirm]')) {
-    const msg = e.target.closest('[data-confirm]').dataset.confirm;
-    if (!confirm(msg || 'Are you sure?')) e.preventDefault();
-  }
-});
+    <div class="sidebar-user-wrap">
+    <div class="sidebar-user" id="sidebarUser" onclick="toggleProfilePopup()" title="Your profile">
+      <div class="user-avatar">{{ session.user_name[0].upper() }}</div>
+      <div class="user-info">
+        <div class="user-name">{{ session.user_name.split()[0] }}</div>
+        <div class="user-email-small">View profile</div>
+      </div>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto;color:var(--text-3);"><polyline points="18 15 12 9 6 15"/></svg>
+    </div>
 
-// ─── Init ─────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
-  initImagePreview();
-  initBrowseTabs();
-  initNotifications();
-});
+    <!-- Profile Popup -->
+    <div class="profile-popup" id="profilePopup" style="display:none;">
+      <div class="profile-popup-header">
+        <div class="profile-popup-avatar">{{ session.user_name[0].upper() }}</div>
+        <div>
+          <div class="profile-popup-name">{{ session.user_name }}</div>
+          <div class="profile-popup-sub">PEC Lost &amp; Found</div>
+        </div>
+      </div>
+      <div class="profile-popup-divider"></div>
+      <a href="{{ url_for('profile') }}" class="profile-popup-item">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        My Profile
+      </a>
+      <a href="{{ url_for('logout') }}" class="profile-popup-item profile-popup-logout">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Sign Out
+      </a>
+    </div>
+    </div>
+  </aside>
+
+  <header class="mobile-header">
+    <button class="burger" id="burgerBtn" onclick="toggleSidebar()">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="mobile-brand">PEC Lost &amp; Found</div>
+    <div class="user-avatar sm">{{ session.user_name[0].upper() }}</div>
+  </header>
+
+  <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+  <main class="main-content page-{{ request.endpoint }}">
+    {% block content %}{% endblock %}
+  </main>
+</div>
+{% else %}
+<div class="app-shell">
+  <header class="mobile-header" style="position:sticky;top:0;display:flex;">
+    <a href="{{ url_for('index') }}" class="mobile-brand" style="text-decoration:none;color:inherit;">PEC Lost &amp; Found</a>
+    <a href="{{ url_for('login') }}" class="btn btn-primary btn-sm" style="margin-left:auto;">Sign in</a>
+  </header>
+  <main class="main-content" style="width:100%;">
+    {{ self.content() }}
+  </main>
+</div>
+{% endif %}
+{% endblock %}
+
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+{% block extra_js %}{% endblock %}
+
+<!-- Notification Drawer (global, outside sidebar) -->
+<div class="notif-overlay" id="notifOverlay" onclick="toggleNotifDrawer()"></div>
+<div class="notif-drawer" id="notifDrawer">
+  <div class="notif-drawer-header">
+    <div class="notif-drawer-title">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      Notifications
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <button onclick="markAllRead()" class="notif-mark-all">Mark all read</button>
+      <button onclick="toggleNotifDrawer()" class="notif-drawer-close" title="Close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="notif-list" id="notifList">
+    <div class="notif-empty">No notifications yet</div>
+  </div>
+</div>
+</body>
+</html>
