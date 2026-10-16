@@ -45,6 +45,13 @@ function doPost(e) {
       htmlBody:  html,
       name:      name,
       noReply:   false,   // keep reply-to working so students can reply
+      // Headers that reduce spam scoring:
+      // List-Unsubscribe signals this is a transactional/notification email
+      headers: {
+        'List-Unsubscribe': '<mailto:peclostandfound@gmail.com?subject=unsubscribe>',
+        'X-Mailer': 'PEC Lost & Found Notification System',
+        'Precedence': 'bulk'
+      }
     };
     if (replyTo) opts.replyTo = replyTo;
     if (text)    opts.body    = text;
