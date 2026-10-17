@@ -1,10 +1,10 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, Response, jsonify
-import os, cloudinary, cloudinary.uploader, threading
+import os, re, time, cloudinary, cloudinary.uploader, threading
 import psycopg2
 import psycopg2.extras
 from functools import wraps
 from authlib.integrations.flask_client import OAuth
-from datetime import timedelta
+from datetime import timedelta, date, datetime
 from html import escape as esc
 import mailer
 import urllib.parse as _urlparse
@@ -301,6 +301,83 @@ def get_all_locations():
 CATEGORIES = ['Electronics', 'Keys', 'Wallet/Purse', 'ID Card', 'Books/Notes', 'Clothing', 'Accessories', 'Bag/Backpack', 'Sports Equipment', 'Other']
 PAGE_SIZE = 20
 
+# ─── Lost ↔ Found Matching (two-way, scored) ──────────────────────────────────
+#
+# Scoring (max 9):
+#   same category (required)           +2
+#   same location                      +3
+#   found 0-3 days after the loss      +2   (4-14 days after: +1)
+#   shared keyword (name/description)  +2
+# Found more than 1 day BEFORE the loss => never a match.
+# A pair is a match when score >= MATCH_THRESHOLD; >= 8 is labelled "Strong".
+# Only information already public on /browse is ever put in notifications/emails.
+
+MATCH_THRESHOLD = 5
+_STOP = {'with', 'this', 'that', 'from', 'have', 'lost', 'found', 'item', 'near', 'size', 'small', 'large'}
+
+def _to_date(v):
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    try:
+        return date.fromisoformat(str(v)[:10])
+    except ValueError:
+        return None
+
+def _words(text):
+    return {w for w in re.findall(r'[a-z0-9]+', (text or '').lower()) if len(w) > 3 and w not in _STOP}
+
+def match_score(lost, found):
+    """Score how likely a lost post and a found post are the same item (0 = no match)."""
+    if lost['category'] != found['category']:
+        return 0
+    score = 2
+    if (lost['location'] or '').strip().lower() == (found['location'] or '').strip().lower():
+        score += 3
+    d_lost, d_found = _to_date(lost['date_lost']), _to_date(found['date_found'])
+    if d_lost and d_found:
+        gap = (d_found - d_lost).days
+        if gap < -1:            # found before it was lost
+            return 0
+        if gap <= 3:
+            score += 2
+        elif gap <= 14:
+            score += 1
+    if _words(f"{lost['item_name']} {lost['description'] or ''}") & _words(found['brief_description']):
+        score += 2
+    return score
+
+def find_found_matches_for_lost(conn, lost_id, limit=3):
+    """Open found items that match a newly posted lost item, best first."""
+    lost = db_execute(conn, 'SELECT * FROM lost_items WHERE id=%s', (lost_id,)).fetchone()
+    if not lost:
+        return []
+    cur = db_execute(conn,
+        "SELECT * FROM found_items WHERE status='open' AND category=%s AND user_id!=%s",
+        (lost['category'], lost['user_id']))
+    scored = [(match_score(lost, f), f) for f in cur.fetchall()]
+    scored = [s for s in scored if s[0] >= MATCH_THRESHOLD]
+    scored.sort(key=lambda s: s[0], reverse=True)
+    return scored[:limit]
+
+def find_lost_matches_for_found(conn, found_id):
+    """Best matching open lost item per owner for a newly posted found item."""
+    found = db_execute(conn, 'SELECT * FROM found_items WHERE id=%s', (found_id,)).fetchone()
+    if not found:
+        return []
+    cur = db_execute(conn,
+        '''SELECT l.*, u.email, u.full_name AS owner_name
+           FROM lost_items l JOIN users u ON l.user_id = u.id
+           WHERE l.status='open' AND l.category=%s AND l.user_id!=%s''',
+        (found['category'], found['user_id']))
+    best = {}
+    for l in cur.fetchall():
+        s = match_score(l, found)
+        if s >= MATCH_THRESHOLD and (l['user_id'] not in best or s > best[l['user_id']][0]):
+            best[l['user_id']] = (s, l)
+    return list(best.values())
+
 @app.template_filter('datefmt')
 def datefmt(value):
     """Format a datetime object or string as YYYY-MM-DD for templates."""
@@ -514,17 +591,43 @@ def post_lost():
             f = request.files['image']
             if f and f.filename and allowed_file(f.filename):
                 image_url = upload_image(f)
+        item_name = request.form.get('item_name', '').strip()
+        category = request.form.get('category', '').strip()
         conn = get_db()
-        db_execute(conn,
-            'INSERT INTO lost_items (user_id,item_name,category,color,location,exact_location,image_path,date_lost,description) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-            (session['user_id'], request.form.get('item_name', '').strip(), request.form.get('category', '').strip(),
+        cur = db_execute(conn,
+            '''INSERT INTO lost_items (user_id,item_name,category,color,location,exact_location,image_path,date_lost,description)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
+            (session['user_id'], item_name, category,
              request.form.get('color', '').strip(), location,
              request.form.get('exact_location', '').strip() or None,
              image_url,
              request.form.get('date_lost', '').strip(), request.form.get('description', '').strip()))
+        lost_id = cur.fetchone()['id']
         conn.commit()
+        try:
+            matches = find_found_matches_for_lost(conn, lost_id)
+        except Exception as e:           # matching must never break posting
+            print(f"Match error (lost): {e}")
+            matches = []
         conn.close()
-        flash('Lost item posted successfully!', 'success')
+
+        if matches:
+            owner = get_current_user()
+            create_notification(owner['id'], 'found_match',
+                f'{len(matches)} found item(s) may match your lost "{item_name}" — check them now!',
+                url_for('browse', category=category))
+            rows = [f'• {esc(f["brief_description"])} — found at {esc(f["location"])} on {esc(str(f["date_found"])[:10])}'
+                    for _, f in matches]
+            send_email(owner['email'], '[PEC Lost & Found] Possible match for your lost item',
+                email_body('Possible Match Found!', [
+                    f'Hi {esc(owner["full_name"].split()[0])},',
+                    f'Items already listed as found may match your lost <strong>{esc(item_name)}</strong>:',
+                    *rows,
+                    'Open the listing and submit a claim with details only the owner would know.'
+                ], url_for('browse', category=category, _external=True), 'View Found Items'))
+            flash(f'Lost item posted! {len(matches)} possible match(es) found — check your notifications.', 'success')
+        else:
+            flash('Lost item posted successfully!', 'success')
         return redirect(url_for('dashboard'))
     return render_template('post_lost.html', categories=CATEGORIES, locations=locations)
 
@@ -551,41 +654,56 @@ def post_found():
         category = request.form.get('category', '').strip()
         brief_desc = request.form.get('brief_description', '').strip()
         date_found = request.form.get('date_found', '').strip()
-        db_execute(conn,
-            'INSERT INTO found_items (user_id,brief_description,category,location,exact_location,date_found) VALUES (%s,%s,%s,%s,%s,%s)',
+        cur = db_execute(conn,
+            'INSERT INTO found_items (user_id,brief_description,category,location,exact_location,date_found) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id',
             (session['user_id'], brief_desc, category, location,
              request.form.get('exact_location', '').strip() or None,
              date_found))
+        found_id = cur.fetchone()['id']
         conn.commit()
-        # Notify users who have open lost items in the same category.
-        # DISTINCT ON ensures each user gets exactly one email even if they
-        # have multiple open lost items in the same category.
-        cur = db_execute(conn,
-            '''SELECT DISTINCT ON (l.user_id) l.user_id, u.email, u.full_name
-               FROM lost_items l
-               JOIN users u ON l.user_id = u.id
-               WHERE l.category = %s AND l.status = 'open' AND l.user_id != %s''',
-            (category, session['user_id'])
-        )
-        matched = cur.fetchall()
+        # Notify the best-matching open lost item of each owner (one alert per owner).
+        try:
+            matched = find_lost_matches_for_found(conn, found_id)
+        except Exception as e:           # matching must never break posting
+            print(f"Match error (found): {e}")
+            matched = []
         conn.close()
-        for m in matched:
-            link = url_for('browse', category=category, _external=True)
-            create_notification(m['user_id'], 'found_match',
-                f'A found {category} item was posted — could be yours!',
+        for score, l in matched:
+            label = 'Strong match' if score >= 8 else 'Possible match'
+            create_notification(l['user_id'], 'found_match',
+                f'{label}: a found {category} item at {location} may be your "{l["item_name"]}"',
                 url_for('browse', category=category))
             send_email(
-                m['email'],
-                f'[PEC Lost & Found] A found {category} item was posted',
-                email_body('Possible Match Found!', [
-                    f'Hi {esc(m["full_name"].split()[0])},',
-                    f'Someone just posted a found <strong style="color:#3b82f6">{esc(category)}</strong> item on campus.',
-                    'It might be yours! Click below to browse and submit a claim.',
-                ], link, 'View Found Items')
+                l['email'],
+                f'[PEC Lost & Found] {label} for your lost {l["item_name"]}',
+                email_body(f'{label} Found!', [
+                    f'Hi {esc(l["owner_name"].split()[0])},',
+                    f'A found <strong>{esc(category)}</strong> item was posted at {esc(location)} on {esc(date_found)}.',
+                    f'It may be your lost <strong>{esc(l["item_name"])}</strong>. Browse and submit a claim if it is yours.',
+                ], url_for('browse', category=category, _external=True), 'View Found Items')
             )
         flash('Found item posted!', 'success')
         return redirect(url_for('dashboard'))
     return render_template('post_found.html', categories=CATEGORIES, locations=locations)
+
+# ─── Claim rate limits ────────────────────────────────────────────────────────
+# Stops people from guessing "hidden details" across many found items.
+CLAIMS_PER_HOUR = 5
+CLAIMS_PER_DAY = 10
+
+def claim_limit_reached(conn, user_id):
+    """Return 'hour' or 'day' if the user hit a claim limit, else None."""
+    cur = db_execute(conn, """
+        SELECT COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '1 hour') AS last_hour,
+               COUNT(*) AS last_day
+        FROM claims
+        WHERE claimant_user_id = %s AND created_at > NOW() - INTERVAL '1 day'""", (user_id,))
+    row = cur.fetchone()
+    if row['last_hour'] >= CLAIMS_PER_HOUR:
+        return 'hour'
+    if row['last_day'] >= CLAIMS_PER_DAY:
+        return 'day'
+    return None
 
 # ─── Claim ────────────────────────────────────────────────────────────────────
 
@@ -618,6 +736,12 @@ def claim_item(found_item_id):
             flash('Please provide more detail (min 20 chars).', 'error')
             conn.close()
             return render_template('claim.html', found_item=found_item, existing_claim=None)
+        limit = claim_limit_reached(conn, session['user_id'])
+        if limit:
+            flash('You have submitted several claims in the last hour — please try again later.' if limit == 'hour'
+                  else "You have reached today's claim limit — please try again tomorrow.", 'error')
+            conn.close()
+            return redirect(url_for('browse'))
         db_execute(conn, 'INSERT INTO claims (found_item_id,claimant_user_id,hidden_details) VALUES (%s,%s,%s)',
             (found_item_id, session['user_id'], hidden_details))
         conn.commit()
@@ -711,6 +835,87 @@ def mark_lost_returned(item_id):
         flash('Item not found or already resolved.', 'error')
     conn.close()
     return redirect(url_for('dashboard'))
+
+# ─── Auto-delete old posts ────────────────────────────────────────────────────
+# Open lost/found posts are deleted POST_LIFETIME_DAYS after they were created.
+# Resolved posts are kept (they feed the profile stats). Found posts that still
+# have a pending claim are skipped until that claim is decided.
+# No scheduler needed: the first request after CLEANUP_INTERVAL seconds triggers
+# the cleanup in a background thread.
+
+POST_LIFETIME_DAYS = 30
+CLEANUP_INTERVAL = 6 * 3600
+_last_cleanup = 0.0
+_cleanup_lock = threading.Lock()
+
+def _cloudinary_public_id(url):
+    """'pec_lost_found/abc123' from a Cloudinary delivery URL (None if unparseable)."""
+    try:
+        tail = url.split('/upload/', 1)[1]
+        tail = re.sub(r'^v\d+/', '', tail)
+        return tail.rsplit('.', 1)[0]
+    except Exception:
+        return None
+
+def delete_expired_posts():
+    """Delete open posts older than POST_LIFETIME_DAYS. Returns counts."""
+    removed = {'lost': 0, 'found': 0}
+    images = []
+    conn = get_db()
+    try:
+        cur = db_execute(conn,
+            """DELETE FROM lost_items
+               WHERE status = 'open' AND created_at < NOW() - (%s * INTERVAL '1 day')
+               RETURNING image_path""", (POST_LIFETIME_DAYS,))
+        rows = cur.fetchall()
+        removed['lost'] = len(rows)
+        images = [r['image_path'] for r in rows if r['image_path']]
+
+        cur = db_execute(conn,
+            """SELECT f.id FROM found_items f
+               WHERE f.status = 'open' AND f.created_at < NOW() - (%s * INTERVAL '1 day')
+                 AND NOT EXISTS (SELECT 1 FROM claims c
+                                 WHERE c.found_item_id = f.id AND c.status = 'pending')""",
+            (POST_LIFETIME_DAYS,))
+        ids = [r['id'] for r in cur.fetchall()]
+        if ids:
+            db_execute(conn, 'DELETE FROM claims WHERE found_item_id = ANY(%s)', (ids,))
+            db_execute(conn, 'DELETE FROM found_items WHERE id = ANY(%s)', (ids,))
+        removed['found'] = len(ids)
+        conn.commit()
+    finally:
+        conn.close()
+    # Best-effort: free the Cloudinary storage used by deleted lost posts.
+    if _cloudinary_configured:
+        for url in images:
+            pid = _cloudinary_public_id(url)
+            if pid:
+                try:
+                    cloudinary.uploader.destroy(pid)
+                except Exception as e:
+                    print(f"Cloudinary delete error: {e}")
+    return removed
+
+def _cleanup_worker():
+    try:
+        removed = delete_expired_posts()
+        if removed['lost'] or removed['found']:
+            print(f"🧹 Deleted expired posts: {removed}")
+    except Exception as e:
+        print(f"Cleanup error: {e}")
+
+@app.before_request
+def maybe_run_cleanup():
+    """At most once per CLEANUP_INTERVAL, start the cleanup in the background."""
+    global _last_cleanup
+    now = time.time()
+    if now - _last_cleanup < CLEANUP_INTERVAL:
+        return
+    with _cleanup_lock:
+        if now - _last_cleanup < CLEANUP_INTERVAL:
+            return
+        _last_cleanup = now
+    threading.Thread(target=_cleanup_worker, daemon=True).start()
 
 # ─── Delete ───────────────────────────────────────────────────────────────────
 
