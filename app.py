@@ -509,7 +509,7 @@ def dashboard():
     cur = db_execute(conn, 'SELECT * FROM found_items WHERE user_id = %s ORDER BY created_at DESC', (uid,))
     my_found = cur.fetchall()
     cur = db_execute(conn, '''
-        SELECT c.*, u.full_name, u.department, u.contact, f.brief_description
+        SELECT c.*, u.full_name, u.department, f.brief_description
         FROM claims c JOIN users u ON c.claimant_user_id = u.id
         JOIN found_items f ON c.found_item_id = f.id
         WHERE f.user_id = %s AND c.status = 'pending' ORDER BY c.created_at DESC
@@ -712,7 +712,7 @@ def claim_limit_reached(conn, user_id):
 def claim_item(found_item_id):
     conn = get_db()
     cur = db_execute(conn,
-        'SELECT f.*, u.full_name, u.department, u.contact, u.hostel_name, u.hosteler_status FROM found_items f JOIN users u ON f.user_id = u.id WHERE f.id = %s',
+        'SELECT f.*, u.full_name, u.department, u.hostel_name, u.hosteler_status FROM found_items f JOIN users u ON f.user_id = u.id WHERE f.id = %s',
         (found_item_id,))
     found_item = cur.fetchone()
     if not found_item:
@@ -782,8 +782,10 @@ def resolve_claim(claim_id, action):
         conn.close()
         flash('Unauthorized.', 'error')
         return redirect(url_for('dashboard'))
-    cur = db_execute(conn, 'SELECT u.email, u.full_name FROM users u WHERE u.id=%s', (claim['claimant_user_id'],))
+    cur = db_execute(conn, 'SELECT u.email, u.full_name, u.contact FROM users u WHERE u.id=%s', (claim['claimant_user_id'],))
     claimant = cur.fetchone()
+    cur = db_execute(conn, 'SELECT full_name, contact FROM users WHERE id=%s', (session['user_id'],))
+    finder = cur.fetchone()
     cur = db_execute(conn, 'SELECT brief_description FROM found_items WHERE id=%s', (claim['found_item_id'],))
     found_item_row = cur.fetchone()
     item_desc = found_item_row['brief_description'] if found_item_row else 'your item'
@@ -795,14 +797,17 @@ def resolve_claim(claim_id, action):
         conn.commit()
         conn.close()
         create_notification(claim['claimant_user_id'], 'claim_approved',
-            f'Your claim on "{item_desc}" was approved! Contact the finder to collect your item.', url_for('dashboard'))
+            f'Your claim on "{item_desc}" was approved! Contact the finder: {finder["full_name"]} ({finder["contact"]}).', url_for('dashboard'))
+        create_notification(session['user_id'], 'claim_approved',
+            f'You approved the claim by {claimant["full_name"]}. Their contact: {claimant["contact"]}.', url_for('dashboard'))
         send_email(claimant['email'], '[PEC Lost & Found] Your claim was approved! 🎉',
             email_body('Claim Approved!', [
                 f'Hi {esc(claimant["full_name"].split()[0])},',
                 f'Great news! Your claim on <em style="color:#a0a0a0">"{esc(item_desc)}"</em> has been <strong style="color:#22c55e">approved</strong>.',
-                'The finder has confirmed you are the owner. Please contact them to collect your item.'
+                'The finder has confirmed you are the owner. Please contact them to collect your item:',
+                f'Finder: <strong>{esc(finder["full_name"])}</strong> &middot; Contact: <strong>{esc(finder["contact"])}</strong>'
             ], url_for('dashboard', _external=True), 'Go to Dashboard'))
-        flash('Claim approved! Item marked as returned.', 'success')
+        flash(f'Claim approved! Contact {claimant["full_name"]} ({claimant["contact"]}) to hand over the item.', 'success')
     else:
         db_execute(conn, 'UPDATE claims SET status = \'rejected\' WHERE id = %s', (claim_id,))
         conn.commit()
